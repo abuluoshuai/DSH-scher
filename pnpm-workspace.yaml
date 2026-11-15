@@ -1,0 +1,11 @@
+# 每个插件是 plugins/ 下的独立包，各自声明自己的依赖。
+# 需要重建 node_modules 时，在本目录执行 `pnpm install`：
+#   * 依赖按 hoisted 布局落在 DSH-scher/node_modules，Host 模块向上查找即可命中；
+#   * Client 半边是预构建产物（client*.js），不需要构建步骤；
+#   * autoInstallPeers 关闭：@deepseek-ai/* 这类 Host 依赖由 DSH 运行时解析，
+#     不在本仓库里装第二份。
+packages:
+  - plugins/*
+
+nodeLinker: hoisted
+autoInstallPeers: false

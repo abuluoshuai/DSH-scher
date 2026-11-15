@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "系统监控",
+    "description": "输入框下方的四根进度条显示当前会话所在主机的 CPU 利用率、内存占用、显卡利用率与显存占用。指标在 DSH Host 进程里采集，所以本地启动的 Harness 和远程服务器上的 Harness 显示的都是会话真正所在的那台机器。支持 Windows、macOS、Linux，以及 NVIDIA、AMD 与 Apple 显卡。点击进度条切换数值显示，悬停查看精确读数。"
+  }
+}

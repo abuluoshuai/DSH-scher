@@ -1,0 +1,59 @@
+{
+  "name": "dsh-ws-recency",
+  "version": "0.27.1",
+  "description": "Sidebar workspace management for DeepSeek Harness: workspace groups ordered by latest activity with a pin control or drag-to-pin for whole workspaces, stale history folded behind one control, session delete into a recoverable trash, archived sessions managed from the same trash panel, per-session token statistics with an argument/result split, moving a session to another workspace, handing the work over to a fresh session, and a literal content search that jumps to the turn a word was said in.",
+  "license": "MIT",
+  "author": "chyxhtc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chyxhtc/dsh-ws-recency.git"
+  },
+  "homepage": "https://github.com/chyxhtc/dsh-ws-recency#readme",
+  "bugs": {
+    "url": "https://github.com/chyxhtc/dsh-ws-recency/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sidebar",
+    "session",
+    "workspace"
+  ],
+  "type": "module",
+  "main": "./index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./client.js": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "id": "dsh-ws-recency",
+    "name": "Workspace recency order",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  }
+}

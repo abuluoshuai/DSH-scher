@@ -1,0 +1,8 @@
+# 本插件的 Loader 行。config 是默认值，用户在 profile 的
+# cordis.patch.yml 里按 id 覆盖即可（局部覆盖只写要改的字段）。
+- insert:
+    - id: system-monitor
+      name: dsh-system-monitor
+      config:
+        intervalMs: 2000
+        gpuCacheMs: 1500

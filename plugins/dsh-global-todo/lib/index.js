@@ -1,0 +1,856 @@
+/**
+ * dsh-global-todo — host half.
+ *
+ * A global todo list: one file, owned by the human and the agent together.
+ * Every entry records when it was added, may carry a description plus any
+ * number of attached documents and addresses, and can be handed to an agent
+ * session with one click.
+ *
+ * This entry wires four things and nothing else:
+ *
+ *  - `store`      — where the list lives (one JSON file, atomic writes)
+ *  - `service`    — the single write path both writers use
+ *  - `dispatcher` — handing a todo to an agent session
+ *  - `tools` / `webServer` / `systemPrompt` — the three optional surfaces
+ *
+ * No `@deepseek-ai/*` import: the tools use raw JSON Schema and the routes use
+ * the plain `webServer.register` contract, so the plugin keeps working across
+ * 0.2.x releases and in lean compositions that lack a service.
+ *
+ * @module dsh-global-todo
+ */
+
+import { readFileSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+
+import { createCompletionWatcher, messageText } from './completion.js'
+import { createDispatcher } from './dispatch.js'
+import { createSettings, explainAutoCollect, idleSessions, retryDelayMs } from './settings.js'
+import { createDiagnostics } from './diagnostics.js'
+import { createMetrics } from './metrics.js'
+import { dueReminders } from './reminders.js'
+import { LIMITS } from './model.js'
+import { ROUTE_BASE, createRoutes } from './routes.js'
+import { createService } from './service.js'
+import { createStore, resolveStorePath } from './store.js'
+import { createSync } from './sync.js'
+import { createTools, normalizeToolGroups, selectTools } from './tools.js'
+
+/** Must equal `package.json`'s version; `npm run check` enforces that. */
+export const VERSION = '0.23.2'
+
+/** Plugin id. Also the Loader row id in `cordis.patch.yml`. */
+export const name = 'dsh-global-todo'
+
+/** Applied when the profile's patch row gives no `config`. */
+export const DEFAULTS = Object.freeze({
+  storePath: '',
+  dispatchDir: '',
+  activityLimit: LIMITS.activity,
+  requireExistingFiles: true,
+  guidance: true,
+  /**
+   * Which agent tools this deployment registers: `all` (11), `core` (6, the list
+   * itself) or `none`.
+   *
+   * The schemas cost about 2k tokens per turn; a deployment that only wants the
+   * panel should not pay for the collaboration surface. An unrecognised value is
+   * reported and treated as `all`, because a typo must not silently remove tools.
+   */
+  toolGroups: 'all',
+  // Starting point for the built-in folder browser when the shell has no picker.
+  // Documented here because a patch override replaces `config` wholesale and has
+  // to restate every key it wants to keep.
+  browseRoot: '',
+  /**
+   * Multi-machine: the directory two machines meet in.
+   *
+   * Empty means "this machine is on its own" — no timer, no route path that names a share,
+   * and a sync tool that says so. It is a **deployment** fact rather than a shared setting:
+   * the path differs per machine and per OS, and putting it in `settings.json` (which sits
+   * next to the store and is edited by the panel) would let one machine silently repoint
+   * another's sync.
+   */
+  sync: { dir: '', intervalMinutes: 5 },
+})
+
+/**
+ * Guidance for the model.
+ *
+ * This is the one place where the plugin asks the agent to do something on its
+ * own initiative, so it states both sides: the situations that should produce a
+ * todo, and the ones that must not. A prompt that only says "remember things"
+ * produces noise, and a noisy list is worse than an empty one.
+ *
+ * Kept short on purpose: it is injected on every turn.
+ */
+/**
+ * The guidance section for a tool-group mode: no tools, no instructions.
+ *
+ * Telling the model to use `global_todo_capture` when that tool was switched off
+ * is worse than saying nothing — it produces a call that cannot exist.
+ *
+ * @param {string} mode
+ * @returns {string} an empty string when nothing is registered
+ */
+export function guidanceFor(mode) {
+  const wanted = normalizeToolGroups(mode)
+  if (wanted === 'none') return ''
+  if (wanted === 'all') return GUIDANCE
+  return GUIDANCE.split('\n')
+    .filter((line) => !line.includes('global_todo_capture') && !line.includes('抓一下待办'))
+    .join('\n')
+}
+
+/**
+ * The bridge with a memory plugin, when one is actually installed.
+ *
+ * Two plugins that both say "remember this" compete for the same sentence, and the model then
+ * writes the same thing twice — once as an action item, once as a fact. The division is worth
+ * stating once: actions belong to this list, durable facts belong to memory.
+ *
+ * It is a **separate section** registered only when `mnemonMemory` exists, rather than a line
+ * inside GUIDANCE: naming a tool the deployment does not have is exactly the failure the
+ * tool-group gate exists to prevent.
+ *
+ * @param {string} mode
+ * @returns {string} an empty string when this plugin registers no tools
+ */
+export function memoryGuidanceFor(mode) {
+  return normalizeToolGroups(mode) === 'none' ? '' : MEMORY_GUIDANCE
+}
+
+const MEMORY_GUIDANCE = [
+  '【全局待办 × 记忆库】这台机器还装了 dsh-mnemon。分工：**要跟进的动作用 `global_todo_*`；值得长期记住的事实用记忆库工具**——同一件事不要两边都写。',
+  '- 待办完成、结论值得以后想起来：先 `global_todo_done` 写清 `summary`，再 `mnemon_remember` 存一条，正文里带上待办 id（`t-xxxxxxxx`）。日常进展用 `global_todo_note`，不要往记忆库里倒。',
+  '- 从记忆里读到「还有件事要办」：记成待办（`global_todo_add`），并在 `description` 里写明来自哪条记忆。只存进记忆的待办不会出现在清单上。',
+  '- 找「要做什么」用 `global_todo_list`，找「知道什么」用 `mnemon_recall` / `mnemon_document_search`；别用记忆搜索代替清单。',
+].join('\n')
+
+const GUIDANCE = [
+  '【全局待办】一份跨会话、跨工作区、人和你共用的待办清单（`global_todo_*` 工具）。它和内置 `todo_write` 不是一回事：那个是你这个会话的计划，这份属于用户、跨会话保留。',
+  '',
+  '**主动记**——不必等用户开口；问「要不要记一下」是错的，直接记：',
+  '- 用户提到需要**跨会话**跟进的事：等对方回复、下周要交、待确认的决定、答应别人的事；',
+  '- 你说过「我先做完 X，回头再 Y」，而 Y 不该在本会话继续；',
+  '- 一轮收尾时发现**还有一步没做**，且它需要别的会话、别的设备或用户本人；',
+  '- 用户说「记一下 / 别忘了 / 回头办」。',
+  '**询问类不要记**：「要不要做 X」「选 A 还是 B」「是否批准」不是待办，是一个问题。能自己定的就定了再做；真要问就在对话里问，不要造一条等人回答的记录。判据看**下一步归谁**：归你 → 待办；归用户拍板 → 问题；归外部等回复 → 见下一条。',
+  '**等待类挂「稍后」**：「跟进某 PR」「等对方回复」不是能推进的活，是提醒。记的时候带上日期，并把 `tags` 设成 `["someday"]`，到点再拎回清单——占着每天的视野却什么也做不了的记录，是清单烂掉的主因。',
+  '**不要记**：你这一步就能做完的、本会话内的执行计划、纯闲聊。宁可少记。',
+  '记的时候：标题一句话说清要做什么；把相关文档**绝对路径**或网址挂进 `links`（接手时会作为上下文一起交出去）；需要精确时间的写 `dueAt`。',
+  '**大活拆步骤**：一件需要多轮才能做完的事，用 `steps` 记下 3–6 步（`global_todo_add` 的 `steps` 参数）——派发时这些步骤会作为编号计划原样交给接手的 Agent，比一段散文有用得多；做完一步就用 `global_todo_update` 把该步的 `done` 置为 true。',
+  '**记之前先问「有截止时间吗」**：没有的话它会先进「收件箱」等你确认，不会直接进清单；给得出日期就给 dueAt。级别不用你猜——清单按截止时间自动算（48 小时内 P1、逾期 P0、没有日期 P3），你传的 priority 只作参考。',
+  '记完用一句话说明记了什么（别复述整条描述）。做完用 `global_todo_done` 留痕，**不要删**。',
+  '**完成要人点头**：`global_todo_done`（或把状态改成 `done`）只是声明——记录会挂「待确认」，用户回答之后才算完成。所以在回复里说「已标记完成，等你确认」，别说「已经结束了」。',
+  '**做完当场划掉（硬要求）**：这一轮把某条待办真的做完了，就在**同一轮**里调用 `global_todo_done`，写清 `summary` 与 `artifacts`——不要等到以后想起来，也不要只在回复里说"做好了"。这是清单不会烂掉的唯一可靠路径：`global_todo_done` 进「待确认」，用户点头才算数。',
+  '一个兜底：如果你这一轮改了某条待办挂着的**那个文件**，宿主会替你递一条声明（同样进「待确认」）。但那只覆盖"改文件"这一种证据，别指望它——该划的还是要自己划。',
+  '做不到 / 卡住了：用 `global_todo_note` 追加一条进展，说明卡在哪、需要用户做什么——**不要**改写待办的 description（那是用户自己的文字）。',
+  '用户说「抓一下待办 / 整理一下要跟进的」时：扫最近对话，用 `global_todo_capture` 一次登记多条，再回一句汇总。',
+].join('\n')
+
+/**
+ * Mount the plugin.
+ *
+ * @param {object} ctx - Cordis context
+ * @param {object} [config] - the patch row's `config`
+ */
+export function apply(ctx, config) {
+  const resolved = { ...DEFAULTS, ...(config ?? {}) }
+  const logger = ctx?.logger
+
+  const file = resolveStorePath(resolved)
+  const store = createStore({
+    file,
+    logger,
+    activityLimit: resolved.activityLimit,
+  })
+  // Runtime counters for /health: in memory, optional everywhere, and never read
+  // back by the plugin itself.
+  const metrics = createMetrics()
+  // The settings object is created further down (it needs the store's directory), so the service
+  // reads it through a holder: a value captured here would make the panel's switch look saved and
+  // do nothing until the next restart.
+  let settingsRef = null
+  const service = createService({
+    store,
+    config: {
+      ...resolved,
+      listLimit: () => settingsRef?.get()?.listLimit ?? resolved.listLimit,
+      dailyRecordLimit: () => settingsRef?.get()?.dailyRecordLimit ?? resolved.dailyRecordLimit,
+    },
+    logger,
+    metrics,
+  })
+  // The inbox must not become a second list. A weekly sweep archives what nobody
+  // confirmed; the record keeps its history, it just leaves the active view.
+  ctx.effect(() => {
+    const sweep = () => {
+      void service
+        // Finished records leave the file, not just the view: the store carried 375 done
+        // records against six open ones, and every fold from another machine paid for them.
+        .purgeFinished({ days: settingsRef?.get?.()?.doneRetentionDays ?? 21 })
+        .then((result) => {
+          if (result?.removed > 0) logger?.info?.(`dsh-global-todo: purged ${result.removed} finished record(s)`)
+        })
+        .catch((error) => logger?.warn?.(`dsh-global-todo: retention purge failed: ${error?.message ?? error}`))
+        .then(() => service.expireInbox({ days: 7 }))
+        .then((result) => {
+          if (result?.expired > 0) logger?.info?.(`dsh-global-todo: archived ${result.expired} unconfirmed inbox item(s)`)
+        })
+        .catch((error) => logger?.warn?.(`dsh-global-todo: inbox expiry failed: ${error?.message ?? error}`))
+    }
+    sweep()
+    if (typeof setInterval !== 'function') return () => {}
+    const timer = setInterval(sweep, 6 * 60 * 60 * 1000)
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => clearInterval(timer)
+  }, 'dsh-global-todo: inbox expiry')
+  // Which conversation did the user last write in?
+  //
+  // The panel is the main view while it is open, so it cannot always see that.
+  // The obvious feed — `api-session/activity` — is not usable as-is: it reports
+  // any user-authored durable message, and a hand-off *is* one (the plugin
+  // injects a user-role message into the target). Tracking that made every
+  // dispatch pull "the current conversation" towards the conversation it had
+  // just dispatched to, so the next click followed the last one instead of the
+  // person. Reading the session log lets us keep only messages a person wrote.
+  // Kept on disk as well as in memory: this plugin restarts with the Host, and an
+  // empty tracker falls back to the panel's stale guess — which is how a hand-off
+  // reached the wrong conversation once already.
+  const recentFile = path.join(path.dirname(file), 'recent-session.json')
+  const recentSession = { id: '', watching: typeof ctx?.on === 'function', file: recentFile }
+  // What a bound conversation last said, remembered while its events stream by.
+  // Read-back has to be cheap: the panel asks on every opened row, and going to the
+  // session log per row would make opening a todo wait on disk. Bounded, text-only,
+  // never persisted — a stale tail is better than no answer, and it costs no write.
+  const SESSION_TAIL_LIMIT = 200
+  const sessionTails = new Map()
+  const rememberTail = (sessionId, text, at) => {
+    if (sessionId === '' || text === '') return
+    if (sessionTails.size >= SESSION_TAIL_LIMIT && !sessionTails.has(sessionId)) {
+      // Oldest insertion first: a Map keeps insertion order, so one delete is enough.
+      const oldest = sessionTails.keys().next()
+      if (oldest.done !== true) sessionTails.delete(oldest.value)
+    }
+    sessionTails.set(sessionId, { text: text.slice(0, 400), at, length: text.length })
+  }
+
+  /** Best-effort: losing this file costs a guess, never a write. */
+  const rememberSession = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '' || recentSession.id === sessionId) return
+    recentSession.id = sessionId
+    void writeFile(recentFile, `${JSON.stringify({ id: sessionId, at: Date.now() })}\n`, 'utf8').catch(() => {})
+  }
+
+  ctx.effect(() => {
+    void readFile(recentFile, 'utf8')
+      .then((text) => {
+        const parsed = JSON.parse(text)
+        if (typeof parsed?.id === 'string' && parsed.id !== '' && recentSession.id === '') recentSession.id = parsed.id
+      })
+      .catch(() => {
+        /* absent or unreadable: the tracker simply starts empty */
+      })
+    return () => {}
+  }, 'dsh-global-todo: recent session file')
+  ctx.effect(() => {
+    if (typeof ctx?.on !== 'function') return () => {}
+    try {
+      const dispose = ctx.on('session/event', (first, second) => {
+        try {
+          const session = first?.id !== undefined && first?.header !== undefined ? first : second
+          const event = typeof first?.type === 'string' ? first : typeof second?.type === 'string' ? second : undefined
+          // Every assistant message updates the read-back cache; only a person typing
+          // moves the recent-session pointer.
+          if (event !== undefined && event.type === 'assistant/message' && typeof session?.id === 'string') {
+            rememberTail(session.id, messageText(event.data?.message), Date.now())
+          }
+          if (event === undefined || event.type !== 'user/message') return
+          // `source.kind === 'user'` means a person typed it: model turns, tool
+          // results and plugin injections all carry a different kind.
+          if (event.data?.source?.kind !== 'user') return
+          if (typeof session?.id === 'string' && session.id !== '') rememberSession(session.id)
+        } catch {
+          /* a malformed event must not break the feed */
+        }
+      })
+      recentSession.watching = true
+      return () => {
+        if (typeof dispose === 'function') dispose()
+      }
+    } catch (error) {
+      recentSession.watching = false
+      logger?.warn?.(`dsh-global-todo: 无法跟踪会话活动：${String(error?.message ?? error)}`)
+      return () => {}
+    }
+  }, 'dsh-global-todo: recent session')
+
+  // Auto-completion: when a handed-off session finishes a turn cleanly, the
+  // record says so by itself. Wired before the dispatcher so a hand-off can
+  // announce itself; guarded, because a Host without the event just keeps the
+  // manual path.
+  // Automatic collect: ask a conversation what needs following up — but only once it has
+  // gone **quiet**.
+  //
+  // Asking at `turn/end` was wrong on its face: a working session ends turns every few
+  // minutes, so the question arrived mid-work and arrived often. Now a clean turn only
+  // *marks* the conversation as a candidate, the moment is recorded, and a timer asks when
+  // nothing has been said for `idleMinutes` (default 30). Any new message restarts that
+  // clock, so a session in use is never asked.
+  const collectPending = {}
+  /** When the current turn started, per session — the window the "already recorded" check uses. */
+  const collectTurnStart = {}
+  const collectActivity = {}
+  // Sessions whose question failed: when the next attempt is allowed, and how many
+  // attempts have failed. Two maps because the decision layer takes timestamps only.
+  const collectRetry = {}
+  const collectAttempts = {}
+  const ASK_TIMEOUT_MS = 10_000
+  const ASK_MAX_ATTEMPTS = 3
+
+  /**
+   * Bound a promise the plugin does not control.
+   *
+   * `requestCapture` may wait on `agents.resume`, and a resume that never settles left
+   * `asking` true forever — which silences the feature for every conversation, not just
+   * the broken one.
+   */
+  const withinMs = (promise, ms) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`等待 ${Math.round(ms / 1000)} 秒没有结果`)), ms)
+      if (typeof timer.unref === 'function') timer.unref()
+      promise.then(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
+  // When a *person* last wrote in each conversation. The question we send is a message in
+  // the conversation too, and re-arming on it is exactly the loop this exists to break — so
+  // only `source.kind === 'user'` counts as somebody having answered.
+  const collectHuman = {}
+  // The last working directory each conversation was seen in, learned from its own events.
+  // The live lookup below is only a fallback for a conversation that has not been seen yet.
+  const collectDir = {}
+
+  const askSession = async (sessionId) => {
+    if (autoCollectState.asking === true) return
+    autoCollectState.asking = true
+    autoCollectState.stats.asked += 1
+    try {
+      // Book first: a question that fails must not be repeated in a burst. The booking is
+      // released below when the question did not arrive, because a failure is not an answer.
+      await settings.rememberAsked(sessionId, Date.now())
+      const result = await withinMs(
+        dispatcher.requestCapture({ sessionId, authoritative: true, mode: 'auto' }),
+        ASK_TIMEOUT_MS,
+      )
+      autoCollectState.lastAsk = { at: Date.now(), sessionId: result?.sessionId ?? sessionId }
+      autoCollectState.error = null
+      autoCollectState.stats.succeeded += 1
+      autoCollectState.lastRetry = null
+      delete collectRetry[sessionId]
+      delete collectAttempts[sessionId]
+      delete collectPending[sessionId]
+    } catch (error) {
+      const message = String(error?.message ?? error)
+      const attempts = (collectAttempts[sessionId] ?? 0) + 1
+      autoCollectState.error = message
+      autoCollectState.stats.failed += 1
+      // A failure is not an answer: leaving the booking behind made `awaiting-human` keep
+      // the conversation quiet until a person happened to speak again.
+      await settings.forgetAsked(sessionId).catch(() => {})
+      if (attempts >= ASK_MAX_ATTEMPTS) {
+        delete collectRetry[sessionId]
+        delete collectAttempts[sessionId]
+        delete collectPending[sessionId]
+        autoCollectState.stats.dropped += 1
+        autoCollectState.lastDrop = { at: Date.now(), sessionId, attempts, error: message }
+      } else {
+        const at = Date.now()
+        collectAttempts[sessionId] = attempts
+        collectRetry[sessionId] = at + retryDelayMs(attempts)
+        autoCollectState.lastRetry = { at, sessionId, attempts, nextAt: collectRetry[sessionId] }
+      }
+      logger?.warn?.(`dsh-global-todo: 自动抓取失败（${message}），第 ${attempts} 次`)
+    } finally {
+      autoCollectState.asking = false
+    }
+  }
+
+  ctx.effect(() => {
+    if (typeof ctx?.on !== 'function') return () => {}
+    try {
+      const dispose = ctx.on('session/event', (first, second) => {
+        try {
+          const session = first?.id !== undefined && first?.header !== undefined ? first : second
+          const event = typeof first?.type === 'string' ? first : typeof second?.type === 'string' ? second : undefined
+          if (event === undefined) return
+          const sessionId = typeof session?.id === 'string' ? session.id : ''
+          if (sessionId === '') return
+          // The conversation's working directory, remembered from the event rather than looked
+          // up when the timer runs. A conversation that has gone quiet is exactly the one the
+          // Host may have unloaded since, and the agents service answers '' for a session it no
+          // longer holds — which would make a directory-keyed exemption stop applying to the
+          // very conversations that need it. The header is frozen at creation, so once seen it
+          // cannot go stale. An exemption decided on a directory that reads as '' is not a
+          // decision at all.
+          if (typeof session?.header?.cwd === 'string' && session.header.cwd !== '') {
+            collectDir[sessionId] = session.header.cwd
+          }
+          autoCollectState.enabled = settings.get().autoCollect === true
+
+          // Anything said, and any turn starting, restarts the quiet clock.
+          if (event.type === 'user/message' || event.type === 'turn/start') {
+            collectActivity[sessionId] = Date.now()
+            // Where this turn began: the auto-collect question is skipped when the agent
+            // already recorded something itself during it (see the check at turn/end).
+            if (event.type === 'turn/start') collectTurnStart[sessionId] = Date.now()
+            // A person typing is the only thing that re-arms a conversation that has already
+            // been asked; model turns, tool results and our own notice do not.
+            if (event.data?.source?.kind === 'user') collectHuman[sessionId] = Date.now()
+            return
+          }
+          if (event.type !== 'turn/end') return
+          if (event.data?.reason?.kind !== 'completed') return
+          // A clean turn makes it a candidate, and *this* is when it went quiet.
+          collectPending[sessionId] = Date.now()
+          collectActivity[sessionId] = Date.now()
+          // ...unless the agent already recorded something in this very turn. The question
+          // exists so a quiet conversation can offer what it has not recorded; a conversation
+          // that just recorded has answered it, and asking again is how the list filled up
+          // with items nobody asked for. Checked asynchronously, so a slow store never blocks
+          // the event stream; dropping the candidate is only a cancel.
+          const turnedAt = collectTurnStart[sessionId] ?? 0
+          if (turnedAt > 0) {
+            void service
+              .capturedSince(sessionId, turnedAt)
+              .then((hit) => {
+                if (hit === null) return
+                if (collectPending[sessionId] === undefined) return
+                delete collectPending[sessionId]
+                autoCollectState.stats.skippedCaptured += 1
+                autoCollectState.lastDecision = { sessionId, ask: false, reason: 'captured', idleMs: 0 }
+              })
+              .catch((error) => {
+                autoCollectState.error = String(error?.message ?? error)
+              })
+          }
+        } catch (error) {
+          autoCollectState.error = String(error?.message ?? error)
+        }
+      })
+      return () => {
+        if (typeof dispose === 'function') dispose()
+      }
+    } catch (error) {
+      autoCollectState.error = String(error?.message ?? error)
+      logger?.warn?.(`dsh-global-todo: 自动抓取无法挂载：${autoCollectState.error}`)
+      return () => {}
+    }
+  }, 'dsh-global-todo: auto collect watch')
+
+  ctx.effect(() => {
+    if (typeof setInterval !== 'function') return () => {}
+    // One minute is plenty for a half-hour rule and costs nothing.
+    const timer = setInterval(() => {
+      try {
+        const current = settings.get()
+        autoCollectState.enabled = current.autoCollect === true
+        const now = Date.now()
+        const idle = idleSessions({
+          pending: collectPending,
+          activityAt: collectActivity,
+          idleMinutes: current.idleMinutes ?? 30,
+          now,
+        })
+        // Going quiet is not a verdict on the work — a conversation waiting on a person or on
+        // an event goes quiet *because* it is unfinished, which makes quiet the wrong signal
+        // to close a todo on. Nothing is closed here; see DESIGN.md, "Quiet is not a verdict".
+        // With the switch off there is nothing to ask for either, so the candidates are
+        // dropped rather than left to fire in a burst the moment it is switched on.
+        if (current.autoCollect !== true) {
+          for (const sessionId of idle) {
+            delete collectPending[sessionId]
+            // A retry belongs to a candidate; with the switch off there is nothing to retry.
+            delete collectRetry[sessionId]
+            delete collectAttempts[sessionId]
+          }
+        }
+        autoCollectState.waiting = Object.keys(collectPending).length
+        // An exemption is keyed on the working directory. What the conversation's own events
+        // reported wins, because an unloaded conversation is the normal state of one that has
+        // gone quiet; the agents service is only the fallback, and it answers '' for a session
+        // it no longer holds — which is not an exemption.
+        const dirAt = {}
+        for (const sessionId of Object.keys(collectPending)) {
+          dirAt[sessionId] = collectDir[sessionId] ?? dispatcher.sessionDir(sessionId)
+        }
+        const decisions = explainAutoCollect({
+          pending: collectPending,
+          activityAt: collectActivity,
+          humanAt: collectHuman,
+          dirAt,
+          retryAt: collectRetry,
+          settings: current,
+          recentSessionId: recentSession.id,
+          now,
+        })
+        const due = decisions.filter((decision) => decision.ask)
+        autoCollectState.waiting = Object.keys(collectPending).length
+        autoCollectState.due = due.length
+        // The reason used to be computed and dropped on the floor; keep the list so /health
+        // can answer "why was this conversation not asked?".
+        autoCollectState.decisions = decisions.slice(0, 20)
+        const shown = due[0] ?? decisions[0]
+        autoCollectState.lastDecision =
+          shown === undefined
+            ? null
+            : { at: now, sessionId: shown.sessionId, ask: shown.ask === true, reason: shown.reason, idleMs: shown.idleMs }
+        if (current.autoCollect !== true || autoCollectState.asking === true) return
+        if (due.length === 0) return
+        void askSession(due[0].sessionId)
+      } catch (error) {
+        autoCollectState.error = String(error?.message ?? error)
+      }
+    }, 60_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => clearInterval(timer)
+  }, 'dsh-global-todo: auto collect timer')
+
+  const watcher = createCompletionWatcher({ ctx, service, logger })
+  // Surfaced by `/health` too: a capability that silently failed to attach is
+  // indistinguishable from one that was never built.
+  const watcherState = { watching: typeof ctx?.on === 'function', error: null }
+  ctx.effect(() => {
+    try {
+      const dispose = watcher.start()
+      watcherState.watching = typeof ctx?.on === 'function'
+      return () => {
+        watcherState.watching = false
+        dispose()
+      }
+    } catch (error) {
+      watcherState.error = String(error?.message ?? error)
+      return () => {}
+    }
+  }, 'dsh-global-todo: completion watcher')
+  // Settings live beside the todo file: the automatic switch has to survive the
+  // panel being closed, because the Host is what acts on it.
+  // Panel error reporting. Bounded on purpose: a failing panel retries every poll, and
+  // an unbounded log is worse than no log.
+  const diagnostics = createDiagnostics({ file: path.join(path.dirname(file), 'client-errors.log'), logger })
+  const settingsFile = path.join(path.dirname(file), 'settings.json')
+  const settings = createSettings({ file: settingsFile, logger })
+  // Hand the service its lazy view of the settings (see the holder above).
+  settingsRef = settings
+  // The multi-machine half. Created even when no share is configured, so /health can say
+  // "off on purpose" instead of leaving the field absent.
+  //
+  // The directory and the interval are read per call rather than captured: the panel writes
+  // them while the Host runs, and a captured path would keep syncing to yesterday's share.
+  // The deployment key (`config.sync.dir`) stays the default for a headless install.
+  const sync = createSync({
+    store,
+    config: resolved.sync,
+    logger,
+    getDir: () => {
+      const fromSettings = settings.get()?.syncDir
+      return typeof fromSettings === 'string' && fromSettings !== '' ? fromSettings : resolved.sync?.dir
+    },
+    getInterval: () => {
+      const fromSettings = settings.get()?.syncMinutes
+      return Number.isFinite(fromSettings) ? fromSettings : resolved.sync?.intervalMinutes
+    },
+  })
+    // One-time upgrade pass, both halves of 0.22.0 in one write: agent-written active records with
+    // no deadline move to the inbox, and rule-governed levels are derived from the deadline. Before
+    // this, the level was whatever a model typed (34 of 40 open "high" records had no deadline), and
+    // the unscheduled records written yesterday would have kept the list unusable while the gate
+    // only governed tomorrow's. Records a person created or edited are left exactly as they are.
+    ctx.effect(() => {
+      void (async () => {
+        try {
+          const current = await settings.load()
+          if (current.gateMigratedAt > 0) return
+          const { inboxed, releveled } = await service.migrate()
+          await settings.update({ gateMigratedAt: Date.now() })
+          if (inboxed > 0 || releveled > 0) {
+            logger?.info?.(
+              `dsh-global-todo: 0.22 迁移：${inboxed} 条没有截止时间的记录移进收件箱，${releveled} 条按截止时间重算了级别（人改过的没动）`,
+            )
+          }
+        } catch (error) {
+          logger?.warn?.(`dsh-global-todo: 0.22 迁移失败：${error?.message ?? error}`)
+        }
+      })()
+      return () => {}
+    }, 'dsh-global-todo: gate migration')
+
+  // Multi-machine sync runs on a timer, never on the request path: a share that is slow or
+  // unmounted must not become a reason the list will not open. The first run waits a few
+  // seconds, so a mount that is still coming up is not part of the Host's startup either.
+  ctx.effect(() => {
+    let lastAttempt = 0
+    const run = () => {
+      // `0` means "only when asked": the panel button or the agent tool, never on a timer.
+      const minutes = sync.minutesOf()
+      if (minutes <= 0) return
+      if (Date.now() - lastAttempt < minutes * 60_000) return
+      lastAttempt = Date.now()
+      void sync
+        .run()
+        .then((result) => {
+          const { sent, received, removed } = result.stats
+          if (sent > 0 || received > 0 || removed > 0) {
+            logger?.info?.(
+              `dsh-global-todo: 同步 ${result.stats.total} 条（送出 ${sent}，收到 ${received}，删除 ${removed}）`,
+            )
+          }
+        })
+        .catch(() => {
+          // lib/sync.js already logged it; the ticker's whole job is to try again next tick.
+        })
+    }
+    // The first pass is delayed: the settings file is read asynchronously at mount, and a sync
+    // started before that would use whatever the previous run left as defaults.
+    const first = setTimeout(run, 10_000)
+    if (typeof first.unref === 'function') first.unref()
+    if (typeof setInterval !== 'function') return () => clearTimeout(first)
+    const timer = setInterval(run, 60_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => {
+      clearTimeout(first)
+      clearInterval(timer)
+    }
+  }, 'dsh-global-todo: sync timer')
+  // Deadlines that have passed and were not announced yet. In memory on purpose: a restart
+  // re-announces an unacknowledged deadline once, which is the offline catch-up a reminder
+  // is supposed to have.
+  const reminderState = { due: [], reminded: {} }
+  ctx.effect(() => {
+    const tick = async () => {
+      try {
+        const current = settings.get()
+        if (current.remindersEnabled === false) {
+          reminderState.due = []
+          return
+        }
+        const { todos } = await service.list({ status: 'active' })
+        const due = dueReminders(todos, {
+          now: Date.now(),
+          reminded: reminderState.reminded,
+          leadMs: (current.reminderLeadMinutes ?? 0) * 60_000,
+        })
+        if (due.length === 0) return
+        for (const item of due) reminderState.reminded[item.id] = item.dueAt
+        const known = new Set(reminderState.due.map((item) => item.id))
+        reminderState.due = [...reminderState.due, ...due.filter((item) => !known.has(item.id))]
+      } catch (error) {
+        logger?.warn?.(`dsh-global-todo: reminder sweep failed: ${error?.message ?? error}`)
+      }
+    }
+    void tick()
+    if (typeof setInterval !== 'function') return () => {}
+    const timer = setInterval(() => void tick(), 30_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => clearInterval(timer)
+  }, 'dsh-global-todo: due reminders')
+  const autoCollectState = {
+    enabled: false,
+    asking: false,
+    lastAsk: null,
+    error: null,
+    waiting: 0,
+    due: 0,
+    decisions: [],
+    lastDecision: null,
+    lastRetry: null,
+    lastDrop: null,
+    // In-memory on purpose: it describes this process, not the list. Restarting resets it.
+    // `skippedCaptured`: questions not asked because the agent had already recorded something
+    // in that turn. Counted so "the auto path went quiet" can be told from "it is broken".
+    stats: { asked: 0, succeeded: 0, failed: 0, dropped: 0, skippedCaptured: 0 },
+  }
+  ctx.effect(() => {
+    void settings.load().then((loaded) => {
+      autoCollectState.enabled = loaded.autoCollect === true
+    })
+    return () => {}
+  }, 'dsh-global-todo: settings file')
+
+  const dispatcher = createDispatcher({
+    ctx,
+    service,
+    config: resolved,
+    logger,
+    metrics,
+    onDispatched: (sessionId) => watcher.expect(sessionId),
+    getRecentSession: () => recentSession.id,
+  })
+
+
+  /** Surfaced by `/health`, so a silently missing surface is visible. */
+  const toolState = { registered: [], error: null }
+
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.effect(() => {
+      try {
+        const definitions = createTools(service, {
+          metrics,
+          settings,
+          sync,
+          // Asked per call, not at mount: the memory plugin may load after this one, and the
+          // answer only matters at the moment a completion is reported.
+          hasMemory: () => {
+            try {
+              return ctx.get?.('mnemonMemory') !== undefined
+            } catch {
+              return false
+            }
+          },
+        })
+        const mode = normalizeToolGroups(resolved.toolGroups)
+        if (resolved.toolGroups !== mode) {
+          // A typo in `config.toolGroups` must be visible, not silently `all`.
+          logger?.warn?.(`dsh-global-todo: 未知的 toolGroups=${String(resolved.toolGroups)}，按 all 处理`)
+        }
+        const selected = selectTools(definitions, mode)
+        const disposers = selected.map((definition) => toolCtx.tools.register(definition))
+        toolState.registered = selected.map((definition) => definition.name)
+        toolState.mode = mode
+        toolState.error = null
+        toolCtx.logger?.info?.(`dsh-global-todo: 注册了 ${definitions.length} 个 Agent 工具`)
+        return () => {
+          for (const dispose of disposers) {
+            try {
+              dispose?.()
+            } catch {
+              /* unloading must not throw */
+            }
+          }
+        }
+      } catch (error) {
+        toolState.error = String(error?.message ?? error)
+        toolCtx.logger?.warn?.(`dsh-global-todo: 工具注册失败：${toolState.error}`)
+        return () => {}
+      }
+    }, 'dsh-global-todo: agent tools')
+  })
+
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.effect(() => {
+      // The running module is the truth for behaviour; package.json is the truth for what
+      // was installed. When they differ the host is still executing the old graph, and
+      // nothing else in the system says so.
+      let diskVersion
+      try {
+        diskVersion = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'package.json'), 'utf8')).version
+      } catch {
+        diskVersion = undefined
+      }
+      const routes = createRoutes({
+        service,
+        dispatcher,
+        logger,
+        // Handed over as a context, not as a value: the connection fence can register
+        // after this plugin, and reading it once at mount time captured `undefined`
+        // (which silently downgraded every LAN/tunnel request to 403).
+        diagnostics,
+        metrics,
+        config: resolved,
+        rootCtx: ctx,
+        connection: ctx.get?.('connection'),
+        tools: toolState,
+        completion: watcherState,
+        target: recentSession,
+        sessionTail: (sessionId) => sessionTails.get(sessionId) ?? null,
+        settings,
+        sync,
+        autoCollect: autoCollectState,
+        reminders: reminderState,
+        version: VERSION,
+        // What this deployment actually exposes, for the panel to hide absent entries and
+        // for a check to tell "switched off" apart from "failed to register".
+        modulesInfo: () => ({
+          toolGroups: normalizeToolGroups(resolved.toolGroups),
+          registered: toolState.registered.slice(),
+          capture: toolState.registered.includes('global_todo_capture'),
+        }),
+        // What is on disk, which after an upgrade is not what this process is running.
+        // The panel talks to a tree that changed under it; /health is where that is visible.
+        diskVersion,
+      })
+      const disposers = routes.map((definition) => webCtx.webServer.register(definition))
+      webCtx.logger?.info?.(`dsh-global-todo: 注册了 ${disposers.length} 条路由（${ROUTE_BASE}）`)
+      return () => {
+        for (const dispose of disposers) {
+          try {
+            dispose?.()
+          } catch {
+            /* unloading must not throw */
+          }
+        }
+      }
+    }, 'dsh-global-todo: web routes')
+  })
+
+  const guidanceText = guidanceFor(resolved.toolGroups)
+  if (resolved.guidance !== false && guidanceText !== '') {
+    ctx.inject(['systemPrompt'], (promptCtx) => {
+      try {
+        const dispose = promptCtx.systemPrompt.section({
+          name: 'dsh-global-todo:guidance',
+          order: 3040,
+          text: guidanceText,
+        })
+        return () => {
+          try {
+            dispose?.()
+          } catch {
+            /* unloading must not throw */
+          }
+        }
+      } catch (error) {
+        logger?.warn?.(`dsh-global-todo: 用法指引注册失败：${error?.message ?? error}`)
+        return () => {}
+      }
+    })
+  }
+
+  // Only when a memory plugin is installed: `ctx.inject` never fires without it, so the section
+  // is absent rather than wrong, and a deployment without memory pays nothing.
+  const memoryGuidanceText = memoryGuidanceFor(resolved.toolGroups)
+  if (resolved.guidance !== false && memoryGuidanceText !== '') {
+    ctx.inject(['systemPrompt', 'mnemonMemory'], (promptCtx) => {
+      try {
+        const dispose = promptCtx.systemPrompt.section({
+          name: 'dsh-global-todo:memory',
+          order: 3041,
+          text: memoryGuidanceText,
+        })
+        return () => {
+          try {
+            dispose?.()
+          } catch {
+            /* unloading must not throw */
+          }
+        }
+      } catch (error) {
+        logger?.warn?.(`dsh-global-todo: 记忆库分工指引注册失败：${error?.message ?? error}`)
+        return () => {}
+      }
+    })
+  }
+
+  logger?.info?.(`dsh-global-todo v${VERSION} 已挂载（store=${file}）`)
+}
+
+export default { name, apply }

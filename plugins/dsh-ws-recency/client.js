@@ -1,0 +1,4513 @@
+/**
+ * dsh-ws-recency - client half.
+ *
+ * Two sidebar behaviors plus the workspace pin order they share:
+ *
+ *   1. GROUP ORDER - DSH already sorts the sessions INSIDE a workspace group by
+ *      `updatedAt` (orderBy: "updated"), but the groups themselves follow the
+ *      workspace registry order (creation order). This plugin ranks every group
+ *      by the freshest `updatedAt` among its own sessions and writes a flex
+ *      `order` onto it. Dragging a workspace header above the divider pins it to
+ *      the top; the pinned workspaces keep the order the user dropped them in,
+ *      and dragging one below the divider unpins it. Native pins, archive state
+ *      and the store are untouched.
+ *      OPTIONAL interop: when dsh-plugin-busy-workspace happens to be installed
+ *      it writes `data-busy-rank` (its urgency band) on the same elements; that
+ *      band is then kept as the primary key among the UNPINNED groups and
+ *      recency only decides the order inside one band. This plugin never depends
+ *      on it.
+ *
+ *   2. HISTORY FOLD - a session that has not been updated for `foldDays` (default
+ *      3) is folded away, and a workspace whose own freshest session is older than
+ *      that shows as a bare header. A small "show history (n)" control on the
+ *      group reveals the folded rows, and the host's own "show more" button keeps
+ *      working for rows it did not render. The selected, running and waiting rows
+ *      are never folded.
+ *
+ * Settings (Settings -> General) persist in the shared Client store.
+ */
+(() => {
+  try {
+    window.__ModuleLoader__.load({
+      id: "dsh-ws-recency",
+      factory: (require) => {
+        var module = { exports: {} };
+        var exports = module.exports;
+        Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+
+        var react = require("react");
+        var clientStore = (function () {
+          try { return require("@deepseek-ai/dsh-client-store"); } catch (error) { return {}; }
+        })();
+        var ui = (function () {
+          try { return require("@deepseek-ai/dsh-client-ui-primitives"); } catch (error) { return {}; }
+        })();
+
+        var NS = "ws-recency";
+        var h = react.createElement;
+
+        var HEADER_PREFIX = "workspace:";
+        var SESSION_PREFIX = "session:";
+        var SECTION_TOKEN = "_groupSection";
+        var OVERFLOW_TOKEN = "sessionOverflowButton";
+        var ROOT_ATTR = "data-wsr-root";
+        var RANK_ATTR = "data-wsr-order";
+        var HIDDEN_ATTR = "data-wsr-hidden";
+        var FOLD_ATTR = "data-wsr-fold";
+        var PINNED_ATTR = "data-wsr-workspace-pinned";
+        var PIN_BUTTON_ATTR = "data-wsr-workspace-pin-button";
+        var PIN_HEADER_ATTR = "data-wsr-pinned-header";
+        var DRAG_READY_ATTR = "data-wsr-drag-ready";
+        var DRAGGING_ATTR = "data-wsr-workspace-dragging";
+        var DRAG_BODY_ATTR = "data-wsr-workspace-drag";
+        var DIVIDER_ATTR = "data-wsr-pin-divider";
+        var BUSY_RANK_ATTR = "data-busy-rank";
+        var CSS_ID = "dsh-ws-recency/css";
+
+        var DAY = 24 * 60 * 60 * 1000;
+        var MIN_DAYS = 1;
+        var MAX_DAYS = 90;
+        var DEFAULT_DAYS = 3;
+        /** Safety stop for driving the host's own "show more" (5 rows per click). */
+        var MAX_EXPAND_CLICKS = 40;
+        var TICK_MS = 5 * 60 * 1000;
+        /** A row press, for when the host's handler listens on one of these. */
+        var PRESS_EVENTS = ["pointerdown", "mousedown", "mouseup"];
+
+        var data = { sessions: null, workspaces: null, settings: null, actions: null, service: null, ctx: null, t: null };
+        var timer = null;
+        var ticker = null;
+        var observer = null;
+        var written = new Set();
+        var roots = new Set();
+        var hidden = new Set();
+        var toggles = new Set();
+        var prefsStore = null;
+        var expandClicks = new Map();
+        var composerPill = null;
+        var expandedSections = new Set();
+        var headerMarked = new WeakSet();
+        /* Workspace pinning: the groups the user dragged above the divider, in
+           display order, plus the drag session's own transient nodes. */
+        var pinDivider = null;
+        var pinDividerParent = null;
+        var dragState = null;
+        var dropLine = null;
+        var dropHint = null;
+        var pinButtons = new Set();
+        var lastGroups = [];
+        var lastPinned = [];
+        var lastContainer = null;
+        var disposed = false;
+
+        var CSS = [
+          "[" + ROOT_ATTR + '="true"]{display:flex;flex-direction:column}',
+          "[" + ROOT_ATTR + '="true"]>*{flex:0 0 auto}',
+          "[" + HIDDEN_ATTR + '="true"]{display:none !important}',
+          '[class*="' + OVERFLOW_TOKEN + '"]{display:none !important}',
+          "[" + DRAG_READY_ATTR + '="true"]{cursor:grab}',
+          "[" + DRAGGING_ATTR + '="true"]{opacity:.45}',
+          "[" + DIVIDER_ATTR + '="true"]{display:flex;align-items:center;gap:8px;height:22px;padding:0 12px;flex:0 0 auto;font-size:11px;line-height:16px;white-space:nowrap;color:var(--dsw-alias-label-tertiary);user-select:none;pointer-events:none}',
+          "[" + DIVIDER_ATTR + '="true"]::before,[' + DIVIDER_ATTR + '="true"]::after{content:"";height:1px;flex:1;background:var(--dsw-alias-border-l2,rgba(255,255,255,.12));opacity:.75}',
+          '[' + DRAG_BODY_ATTR + '="true"] [' + DIVIDER_ATTR + '="true"]{height:32px}',
+          '[' + DIVIDER_ATTR + '="true"][data-wsr-empty="true"]{display:none}',
+          '[' + DIVIDER_ATTR + '="true"][data-wsr-zone="pinned"]{color:var(--dsw-alias-brand-primary,#4f7cff)}',
+          ".wsr-drop-line{position:fixed;height:2px;border-radius:1px;background:var(--dsw-alias-brand-primary,#4f7cff);z-index:1500;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.18)}",
+          '.wsr-drop-line[data-zone="unpinned"]{background:var(--dsw-alias-label-tertiary,#8a8f98)}',
+          ".wsr-drop-hint{position:fixed;z-index:1501;pointer-events:none;padding:3px 8px;border-radius:6px;font-size:11px;line-height:16px;white-space:nowrap;color:var(--dsw-alias-label-primary,#e8e8e8);background:var(--dsw-alias-bg-layer-1,#1f2226);border:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.16));box-shadow:0 4px 14px rgba(0,0,0,.35)}",
+          ".wsr-pin-list{display:flex;flex-direction:column;gap:4px;min-width:180px;max-width:320px;flex:none}",
+          ".wsr-pin-line{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}",
+          ".wsr-pin-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-pin-empty{font-size:12px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-pin-clear{align-self:flex-start;margin-top:2px}",
+          ".wsr-ws-pin{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:-4px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}",
+          ".wsr-ws-pin:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
+          '.wsr-ws-pin[data-pinned="true"]{color:var(--dsw-alias-brand-primary,#4f7cff)}',
+          ".wsr-ws-pin:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4f7cff);outline-offset:-2px}",
+          '[' + PIN_HEADER_ATTR + '="true"]>[class*="rowActions"]{display:inline-flex !important}',
+          ".wsr-pill{box-sizing:border-box;border:none;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;border-radius:var(--dsw-radius-sm,6px);display:inline-flex;align-items:center;gap:6px;padding:1px 8px;cursor:pointer}",
+          ".wsr-pill:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-secondary,#cfd3d8)}",
+          ".wsr-modal-backdrop{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}",
+          ".wsr-modal{width:min(720px,92vw);max-height:84vh;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,#1f2226);color:var(--dsw-alias-label-primary,#e8e8e8);border:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.45);overflow:hidden}",
+          ".wsr-modal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.1))}",
+          ".wsr-modal-title{font-size:14px;font-weight:600}",
+          ".wsr-modal-close{border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#9aa0a6);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}",
+          ".wsr-modal-close:hover{color:var(--dsw-alias-label-primary,#e8e8e8)}",
+          ".wsr-modal-tools{display:flex;align-items:center;gap:8px;flex:none}",
+          ".wsr-modal-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px;font-size:12px}",
+          ".wsr-stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}",
+          ".wsr-stats-card{background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04));border-radius:8px;padding:8px 10px}",
+          ".wsr-stats-value{font-size:15px;font-weight:600}",
+          ".wsr-stats-label{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-stats-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,.06)}",
+          ".wsr-stats-seg{height:100%}",
+          ".wsr-stats-legend{display:flex;flex-wrap:wrap;gap:10px}",
+          ".wsr-stats-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-stats-swatch{width:8px;height:8px;border-radius:2px}",
+          ".wsr-move-warning{color:var(--dsw-alias-state-warn-primary,#d9a72c);font-size:11px;line-height:1.5}",
+          ".wsr-move-list{display:flex;flex-direction:column;gap:4px}",
+          ".wsr-move-row{display:flex;align-items:center;gap:8px;text-align:left;border:none;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04));color:inherit;font:inherit;padding:8px 10px;border-radius:8px;cursor:pointer}",
+          ".wsr-move-row:hover:not([disabled]){background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08))}",
+          ".wsr-move-row[disabled]{opacity:.55;cursor:default}",
+          ".wsr-move-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}",
+          ".wsr-move-title{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-move-path{font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-move-badge{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-trash-row{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04))}",
+          ".wsr-footer-action{display:flex;box-sizing:border-box;flex:none;align-items:center;justify-content:flex-start;gap:8px;width:calc(100% + 4px);min-width:0;height:42px;margin:4px -2px;padding:0 10px 0 8px;border:0;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer}",
+          ".wsr-footer-action:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+".wsr-page{display:flex;flex-direction:column;gap:10px;padding:16px 18px;min-width:0;box-sizing:border-box;height:100%;overflow:auto}",
+          ".wsr-handoff-option{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer}",
+          ".wsr-handoff-option:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}",
+          ".wsr-handoff-option input{margin-top:2px}",
+          ".wsr-handoff-option-text{display:flex;flex-direction:column;gap:2px;min-width:0}",
+          ".wsr-handoff-option-title{font-size:13px;color:var(--dsw-alias-label-primary)}",
+          ".wsr-handoff-option-desc{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-handoff-extra{width:100%;box-sizing:border-box;min-height:56px;max-height:140px;resize:vertical;font:inherit;font-size:12px;line-height:1.6;padding:8px 10px;border-radius:8px;border:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.16));background:var(--dsw-alias-bg-layer-1,#1b1b1b);color:var(--dsw-alias-label-primary,#e6e6e6)}",
+          ".wsr-handoff-body{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-1,#1b1b1b)}",
+          ".wsr-qcard{width:100%;max-width:var(--dsh-chat-content-width,100%);border-radius:var(--dsw-radius-xl,16px);background:var(--dsw-specific-input-major,var(--dsw-alias-bg-layer-2));box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.35));color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;padding:0 0 10px;margin:8px 0;overflow:hidden}",
+          ".wsr-qcard *{box-sizing:border-box}",
+          ".wsr-qhead{display:flex;align-items:flex-start;gap:8px;padding:14px 16px 8px}",
+          ".wsr-qheading{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}",
+          ".wsr-qeyebrow{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);text-transform:uppercase;letter-spacing:.04em}",
+          ".wsr-qtitle{font-size:15px;font-weight:500;line-height:22px;color:var(--dsw-alias-label-primary)}",
+          ".wsr-qdetail{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-qicon{flex:none;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;cursor:pointer;padding:2px 6px;border-radius:6px}",
+          ".wsr-qicon:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary)}",
+          ".wsr-qoptions{display:flex;flex-direction:column;gap:1px;margin:8px 0 0;padding:4px 12px}",
+          ".wsr-qoption{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:40px;padding:8px 12px 8px 8px;border:1px solid transparent;border-radius:var(--dsw-radius-md,8px);background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;transition:background-color .12s,border-color .12s}",
+          ".wsr-qoption:hover,.wsr-qoption-selected{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08))}",
+          ".wsr-qoption-selected{border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.16))}",
+          ".wsr-qnum{flex:none;width:18px;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);text-align:center}",
+          ".wsr-qtext{display:flex;flex-direction:column;gap:2px;min-width:0}",
+          ".wsr-qextra{padding:4px 16px 0}",
+          ".wsr-qpreview{margin:8px 16px 0;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.24));white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;max-height:220px;overflow:auto}",
+          ".wsr-qfooter{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:8px 16px 0}",
+          ".wsr-qactions{display:flex;align-items:center;gap:8px}",
+          ".wsr-qcancel{border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;cursor:pointer;padding:4px 8px;border-radius:6px}",
+          ".wsr-qcancel:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08))}",
+          ".wsr-qsubmit{border:none;border-radius:8px;background:var(--dsw-alias-brand-primary,#4f7cff);color:#fff;font:inherit;font-size:12px;font-weight:500;cursor:pointer;padding:6px 14px}",
+          ".wsr-qsubmit:hover{filter:brightness(1.06)}",
+          ".wsr-handoff-live{margin:8px 0;font-size:12px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-msg-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}",
+          ".wsr-msg-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary)}",
+          ".wsr-handoff-status{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.6}",
+          ".wsr-handoff-text{width:100%;box-sizing:border-box;min-height:220px;max-height:46vh;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;padding:10px;border-radius:8px;border:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.16));background:var(--dsw-alias-bg-layer-1,#1b1b1b);color:var(--dsw-alias-label-primary,#e6e6e6)}",
+".wsr-page-head{display:flex;align-items:center;gap:8px}",
+".wsr-page-heading{flex:1;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}",
+".wsr-page-list{display:flex;flex-direction:column;gap:6px}",
+".wsr-page-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04))}",
+".wsr-card{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:.5px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));border-radius:10px;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04))}",
+".wsr-card-head{display:flex;align-items:center;gap:10px;min-width:0}",
+".wsr-card-badge{flex:none;font-size:11px;line-height:18px;padding:0 8px;border-radius:9px;background:var(--dsw-alias-bg-layer-3,rgba(255,255,255,.08));color:var(--dsw-alias-label-secondary)}",
+".wsr-card-badge-danger{color:var(--dsw-alias-state-error-primary,#d9534f);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d9534f) 14%,transparent)}",
+".wsr-card-badge-muted{color:var(--dsw-alias-label-tertiary)}",
+".wsr-card-title{flex:1;min-width:0;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+".wsr-card-title-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--dsw-alias-label-tertiary)}",
+".wsr-card-actions{flex:none;display:flex;gap:6px;align-items:center;white-space:nowrap}",
+".wsr-chips{display:flex;flex-wrap:wrap;gap:6px}",
+".wsr-chip{font-size:11px;line-height:18px;padding:0 7px;border-radius:9px;background:var(--dsw-alias-bg-layer-3,rgba(255,255,255,.06));color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+".wsr-card-path{font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+".wsr-page-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}",
+".wsr-page-title{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+".wsr-page-meta{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+".wsr-page-path{font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+".wsr-page-actions{display:flex;gap:6px;flex:none;align-items:center;white-space:nowrap}",
+".wsr-page-note{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.6}",
+".wsr-page-error{color:var(--dsw-alias-state-error-primary,#d9534f)}",
+".wsr-page-section{display:flex;align-items:baseline;gap:8px;margin-top:8px;padding-bottom:2px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.1));font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}",
+".wsr-page-count{font-weight:400;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+".wsr-page-title-blank{color:var(--dsw-alias-label-tertiary);font-style:italic}",
+          ".wsr-footer-action:active{background:var(--dsw-alias-interactive-bg-active)}",
+          ".wsr-footer-action:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}",
+          '.wsr-footer-action[data-wide="false"]{width:36px;height:36px;margin:8px 0 10px;padding:0;gap:0;border-radius:50%;justify-content:center}',
+          ".wsr-footer-glyph{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px}",
+          '.wsr-footer-action[data-wide="false"] .wsr-footer-glyph{width:18px;height:18px}',
+          ".wsr-footer-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-trash-actions{display:flex;gap:6px;flex:none;align-items:center;white-space:nowrap}",
+          ".wsr-btn{border:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.16));background:0 0;color:var(--dsw-alias-label-primary,#e6e6e6);font:inherit;font-size:12px;line-height:1.6;padding:3px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;flex:none}",
+          ".wsr-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08))}",
+          ".wsr-btn-danger{border-color:var(--dsw-alias-state-error-primary,#d9534f);color:var(--dsw-alias-state-error-primary,#d9534f)}",
+          ".wsr-danger{border-color:var(--dsw-alias-state-error-primary,#d9534f);color:var(--dsw-alias-state-error-primary,#d9534f)}",
+          /* In-app confirmation: native window.confirm leaves the renderer
+             without keyboard focus on Windows (the composer then ignores
+             clicks until the app loses and regains focus). */
+          ".wsr-confirm{width:min(420px,88vw);display:flex;flex-direction:column;gap:14px;padding:16px;border-radius:12px;background:var(--dsw-alias-bg-layer-1,#1f2226);color:var(--dsw-alias-label-primary,#e8e8e8);border:.5px solid var(--dsw-alias-border-l2,rgba(255,255,255,.16));box-shadow:0 14px 44px rgba(0,0,0,.45);outline:none}",
+          ".wsr-confirm-text{white-space:pre-wrap;font-size:13px;line-height:1.65}",
+          ".wsr-confirm-actions{display:flex;justify-content:flex-end;gap:8px}",
+          ".wsr-chart{display:flex;flex-direction:column;gap:6px}",
+          ".wsr-chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px}",
+          ".wsr-chart-title{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-chart-row{display:grid;grid-template-columns:120px 1fr 64px 56px;align-items:center;gap:8px}",
+          ".wsr-chart-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}",
+          ".wsr-chart-track{height:8px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden;display:flex}",
+          ".wsr-chart-fill{height:100%;border-radius:0;min-width:0}",
+          ".wsr-chart-group{display:flex;height:100%;min-width:2px;border-radius:4px;overflow:hidden}",
+          ".wsr-chart-swatch{width:8px;height:8px;border-radius:2px;background:hsl(217, 88%, 50%)}",
+          ".wsr-chart-swatch-dim{background:hsl(217, 56%, 68%)}",
+          ".wsr-chart-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center}",
+          ".wsr-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-chart-legend-text{white-space:nowrap}",
+          ".wsr-chart-value{text-align:right;font-variant-numeric:tabular-nums}",
+          ".wsr-chart-share{text-align:right;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+          ".wsr-stats-details{display:flex;flex-direction:column;gap:8px}",
+          ".wsr-stats-table{display:flex;flex-direction:column}",
+          ".wsr-stats-row{display:grid;grid-template-columns:1.4fr .6fr .8fr .8fr .8fr .6fr;gap:6px;padding:6px 4px;border-bottom:.5px solid rgba(255,255,255,.06)}",
+          ".wsr-stats-head{color:var(--dsw-alias-label-tertiary);font-size:11px}",
+          ".wsr-td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-td-name{font-weight:500}",
+          ".wsr-td-strong{font-weight:600}",
+          ".wsr-td-dim{color:var(--dsw-alias-label-tertiary);opacity:.65}",
+          ".wsr-stats-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5}",
+          /* Three views, one dialog: distribution, amplification, details. */
+          ".wsr-stats-tabs{display:flex;gap:2px;border-bottom:.5px solid rgba(255,255,255,.08)}",
+          ".wsr-stats-tab{border:none;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;padding:6px 10px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-.5px}",
+          ".wsr-stats-tab:hover{color:var(--dsw-alias-label-primary)}",
+          ".wsr-stats-tab-active{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-brand-primary,#4f7cff)}",
+          ".wsr-stats-panels{display:flex;flex-direction:column;gap:10px}",
+          ".wsr-stats-panel{display:flex;flex-direction:column;gap:10px}",
+          /* Amplified cost: the bill is the area under the context curve, so the
+             ranking is by content x remaining steps, not by step tokens. */
+          ".wsr-amplified{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:8px;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04))}",
+          ".wsr-amplified-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}",
+          ".wsr-amplified-title{font-size:12px;font-weight:600}",
+          ".wsr-amplified-summary{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-context-chart{display:flex;align-items:flex-end;gap:2px;height:54px;padding-top:4px;border-bottom:.5px solid rgba(255,255,255,.08)}",
+          ".wsr-context-bar{flex:1;min-width:1px;border-radius:1px 1px 0 0;background:linear-gradient(180deg,rgba(79,124,255,.9),rgba(79,124,255,.3))}",
+          ".wsr-context-caption{font-size:10px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-kind-legend{display:flex;flex-wrap:wrap;gap:10px}",
+          ".wsr-kind{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-kind-dot{width:8px;height:8px;border-radius:2px;flex:none}",
+          ".wsr-amplified-list{display:flex;flex-direction:column;gap:2px}",
+          ".wsr-amplified-row{display:grid;grid-template-columns:1fr 76px 48px;gap:8px;align-items:start;padding:6px 0;border-bottom:.5px solid rgba(255,255,255,.06)}",
+          ".wsr-amplified-main{min-width:0;display:flex;flex-direction:column;gap:1px}",
+          ".wsr-amplified-name{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-amplified-detail{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}",
+          ".wsr-amplified-meta{font-size:10px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-amplified-value{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:12px}",
+          ".wsr-amplified-share{text-align:right;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}",
+          ".wsr-amplified-if{grid-column:1 / -1;font-size:10px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-amplified-empty{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-toggle{width:100%;height:28px;padding:0 12px 0 calc(28px + var(--dsh-workspace-indent,0px));cursor:pointer;text-align:left;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;font-size:12px}",
+          ".wsr-toggle:hover{color:var(--dsw-alias-label-secondary)}",
+
+          ".wsr-search-bar{display:flex;gap:8px;align-items:center}",
+          ".wsr-search-input{flex:1;min-width:0;height:30px;padding:0 10px;border-radius:6px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;font-size:13px}",
+          ".wsr-hit{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:8px;cursor:pointer}",
+          ".wsr-hit:hover{background:var(--dsw-alias-bg-layer-2)}",
+          ".wsr-hit-head{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-hit-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:13px}",
+          ".wsr-hit-role{flex:none;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-2);font-size:10px}",
+          ".wsr-hit-user{color:#4f8ef7}",
+          ".wsr-hit-agent{color:#3fae6b}",
+          ".wsr-hit-ws{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+          ".wsr-hit-turn{flex:none}",
+          ".wsr-hit-snippet{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);word-break:break-word}",
+          ".wsr-mark{background:rgba(79,142,247,.28);color:inherit;border-radius:2px}",
+          '[data-wsr-flash="true"]{outline:2px solid #4f8ef7;outline-offset:2px;border-radius:8px}',
+
+          ".wsr-setRow{display:flex;align-items:center;gap:16px;justify-content:space-between;padding:12px 0}",
+          ".wsr-setText{min-width:0}",
+          ".wsr-setTitle{font-size:14px;line-height:20px;color:var(--dsw-alias-label-primary)}",
+          ".wsr-setDesc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);margin-top:2px}",
+          ".wsr-controls{display:flex;align-items:center;gap:8px;flex:none}",
+          ".wsr-step{width:24px;height:24px;border-radius:6px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1}",
+          ".wsr-input{width:48px;height:24px;text-align:center;border-radius:6px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;font-size:13px}",
+          ".wsr-exempt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);margin-left:8px}",
+        ].join("");
+
+        var ZH = {
+          "settings.title": "\u5386\u53f2\u6298\u53e0\u5929\u6570",
+          "settings.description": "\u4f1a\u8bdd\u8d85\u8fc7\u8fd9\u4e48\u591a\u5929\u6ca1\u6709\u66f4\u65b0\u5c31\u6298\u53e0\uff1b\u6574\u4e2a\u5de5\u4f5c\u533a\u90fd\u8fc7\u671f\u65f6\u53ea\u5269\u5de5\u4f5c\u533a\u6807\u9898\u3002",
+          "settings.exempt": "选中 / 运行中 / 等待处理的会话不折叠",
+          "fold.show": "\u5c55\u5f00\u5386\u53f2 {n}",
+          "fold.hide": "\u6536\u8d77\u5386\u53f2",
+          "pins.title": "置顶的工作区",
+          "pins.description": "分组默认按最近活跃排序。把工作区标题拖到分隔线以上就能固定到顶部，或点工作区标题右侧的图钉；置顶工作区之间按拖动顺序排列。把置顶工作区拖到分隔线以下，或再点一次图钉，即可取消置顶。",
+          "pins.empty": "还没有置顶的工作区——拖动工作区标题到顶部，或点标题右侧的图钉即可固定。",
+          "pins.unpin": "取消置顶",
+          "pins.pinWorkspace": "置顶此工作区",
+          "pins.unpinWorkspace": "取消置顶此工作区",
+          "pins.clear": "全部取消",
+          "pins.head": "置顶工作区",
+          "pins.dropHere": "拖到这里固定到顶部",
+          "pins.hintPin": "松开：固定到顶部",
+          "pins.hintReorder": "松开：调整置顶顺序",
+          "pins.hintUnpin": "松开：取消置顶",
+          "pins.hintUnpinned": "松开：保持最近活跃排序",
+          "argmode.title": "把工具参数计入主 agent",
+          "argmode.description": "工具参数是模型自己写的（pwsh 的命令、write 的文件内容），严格说算主 agent 的输出，不算工具的消耗。打开后消耗分布里工具只算返回结果，参数并入主 agent。",
+          "argmode.enabled": "工具参数计入主 agent",
+          "menu.trash": "\u5220\u9664\u4f1a\u8bdd\uff08\u79fb\u5165\u56de\u6536\u7ad9\uff09",
+          "menu.stats": "Token \u6d88\u8017\u7edf\u8ba1",
+          "stats.title": "Token \u6d88\u8017\u7edf\u8ba1",
+          "stats.loading": "\u7edf\u8ba1\u4e2d\u2026\uff08\u5927\u4f1a\u8bdd\u9700\u8981\u4e00\u4e24\u79d2\uff09",
+          "stats.failed": "\u7edf\u8ba1\u5931\u8d25\uff1a",
+          "stats.steps": "\u6b65\u6570",
+          "stats.input": "\u8f93\u5165\uff08\u672a\u7f13\u5b58\uff09",
+          "stats.cache": "\u7f13\u5b58\u547d\u4e2d",
+          "stats.output": "\u8f93\u51fa",
+          "stats.total": "\u5408\u8ba1",
+          "stats.agent": "\u4e3b agent",
+          "stats.col.source": "\u6765\u6e90",
+          "stats.col.calls": "\u8c03\u7528",
+          "stats.col.args": "\u53c2\u6570",
+          "stats.col.results": "\u7ed3\u679c",
+          "stats.col.total": "\u4f30\u7b97",
+          "stats.col.share": "\u5360\u6bd4",
+          "stats.note": "\u5408\u8ba1\u6765\u81ea\u6bcf\u6b65\u8bb0\u5f55\u7684\u771f\u5b9e usage\uff08\u7f13\u5b58\u547d\u4e2d + \u8f93\u5165 + \u8f93\u51fa\uff09\uff1b\u672c\u8868\u6309\u6765\u6e90\u7684\u62c6\u5206\u662f\u6309\u5185\u5bb9\u957f\u5ea6\u4f30\u7b97\uff08\u4e2d\u6587\u7ea6 1 token/\u5b57\uff0c\u82f1\u6587\u7ea6 4 \u5b57\u7b26/token\uff09\uff0c\u7528\u4e8e\u6bd4\u8f83\u5360\u6bd4\uff0c\u4e0d\u662f\u8ba1\u8d39\u53e3\u5f84\u3002",
+          "stats.agentDetail": "主 agent 构成：思考 {reasoning} · 回复 {text} · 用户消息 {user} · 系统提示 {system}",
+          "stats.diagnose.unmounted": "\n\n（宿主半已加载，但统计路由没挂上——重启应用再试）",
+          "stats.diagnose.noHost": "\n\n（宿主半未加载：需要重启应用加载新版本）",
+          "menu.move": "移动到工作区…",
+          "menu.handoff": "交接到新会话",
+          "handoff.title": "会话交接",
+          "handoff.note": "交接指令已经放进输入框（或点「复制指令」自己粘），发送后我在这里等 AI 写出交接块；抓到以后可以直接开到新会话。",
+          "handoff.instruction": "我要把这个会话交接给一个新会话继续推进。请按下面的要求输出一份交接说明，写进一个 ~~~handoff 代码块里（三个波浪线 + 语言标记 handoff），我会原样交给新会话：\n\n1. 只给文档路径和一句话说明「读它为什么」，不要粘贴文档内容；\n2. 文档按重要性排序，标注哪些必读、哪些按需；\n3. 包含：目标、当前进度、尚未完成与下一步、关键决策与约束、踩过的坑、验证方式；\n4. 交接正文控制在 400 字以内（文档引用除外）。",
+          "handoff.inserted": "交接指令已放进输入框，按回车发送；我会自动抓取回复。",
+          "handoff.copyHint": "没能直接写入输入框，请点「复制指令」再粘贴到输入框发送。",
+          "handoff.copy": "复制指令",
+          "handoff.waiting": "等待 AI 写出交接块…（{n} 秒）",
+          "handoff.found": "已抓到交接块，确认后会在当前工作区开一个新会话并把它带过去。",
+          "handoff.confirm": "确认交接，开新会话",
+          "handoff.more": "继续补充",
+          "handoff.noService": "没能自动开新会话，交接内容已复制到剪贴板，手动新建会话粘贴即可。",
+          "handoff.preamble": "以下是一个会话交接说明，来自上一个会话。请先按「文档引用」逐份阅读文档，再结合要点接续工作；已经完成的部分不要重做。",
+          "handoff.footnote": "交接内容会另存一份到 .wsr/handoff/，方便追溯。",
+          "handoff.preparing": "正在准备交接，等这一轮回复写完…",
+          "handoff.pressEnter": "指令已放进输入框，请按回车发送（自动发送没有生效）。",
+          "handoff.cancel": "放弃交接",
+          "handoff.confirmDesc": "带着这份内容在当前工作区开一个新会话",
+          "handoff.regen": "不满意，重新生成一版",
+          "handoff.regenDesc": "让当前会话按同样的要求再写一份",
+          "handoff.extraPlaceholder": "补充调整意见（填了就按这些要求重写，例如：多写接口约束、少写历史）",
+          "handoff.preview": "查看内容",
+          "handoff.submit": "提交",
+          "handoff.eyebrow": "需要你确认",
+          "handoff.regeneratePrompt": "这份交接说明需要重写。请按最初同样的要求再输出一份，同样写进 ~~~handoff 代码块，路径与要点保持精炼。",
+          "handoff.adjustPrompt": "请按下面的补充要求重写交接说明，保持 ~~~handoff 代码块格式：",
+          "move.title": "移动到工作区",
+          "move.warning": "只移动会话本身：它在旧工作区里创建或修改的文件不会跟着走，仍留在原目录。",
+          "move.note": "会话属于哪个工作区，由它创建时的目录决定；移动会改写会话记录的 cwd，把日志搬到新工作区目录，旧日志备份在 .trash/ws-recency。",
+          "move.confirm": "把会话移动到「{workspace}」？\n\n只移动会话记录，旧工作区里的文件不会跟着搬。",
+          "move.current": "当前",
+          "move.working": "移动中…（会先停止会话）",
+          "move.done": "已移动到「{workspace}」。若列表没刷新，切换一下工作区或重启应用。",
+          "move.doneLive": "\n\n这个会话刚才是打开状态：建议重启应用后再继续对话，避免它沿用旧的目录。",
+          "move.repaired": "已补登记到「{workspace}」：上一次移动只搬了日志、没登记工作区，这次把它补上了。",
+          "adopt.title": "补登记游离会话",
+          "adopt.description": "修复会话归属：把“目录属于某工作区却不在任何分组”的会话挂回去，并把仍挂在旧工作区分组里的重复归属清掉。",
+          "adopt.action": "扫描并刷新",
+          "adopt.working": "扫描中…",
+          "adopt.done": "已补登记 {n} 个会话。",
+          "adopt.cleaned": "清理了 {n} 处重复/失效的工作区归属。",
+          "adopt.failed": "扫描失败：",
+          "search.title": "搜索会话内容",
+          "search.placeholder": "输入关键词后回车；多个词用空格分隔，要求同时出现",
+          "search.run": "搜索",
+          "search.searching": "搜索中…",
+          "search.indexing": "还有 {n} 个会话正在建立索引，结果会陆续补上…",
+          "search.summary": "{hits} 处命中 · 共 {sessions} 个会话 · {ms} ms",
+          "search.empty": "没有匹配的内容。",
+          "search.failed": "搜索失败：",
+          "search.you": "你",
+          "search.assistant": "助手",
+          "search.turn": "第 {n} 轮",
+          "ui.reload": "刷新界面",
+          "ui.refresh": "刷新列表",
+          "trash.title": "回收站",
+          "trash.description": "被删除的会话会移到这里（日志目录），可以恢复，也可以彻底删除。",
+          "trash.open": "打开",
+          "trash.loading": "读取中…",
+          "trash.empty": "回收站是空的。",
+          "trash.reason.delete": "已删除",
+          "trash.reason.move": "移动时的旧副本",
+          "trash.restore": "恢复",
+          "trash.purge": "彻底删除",
+          "trash.confirmRestore": "恢复到原来的工作区？",
+          "trash.confirmPurge": "彻底删除这份日志？不可恢复。",
+          "trash.restored": "已恢复，并重新挂回原工作区。若侧栏还没出现，点下面的「刷新界面」，或在本页右上角点「扫描并刷新」。",
+          "trash.purged": "已彻底删除。",
+          "trash.working": "处理中…",
+          "trash.failed": "操作失败：",
+          "trash.note": "回收站里的都是完整日志目录；恢复会按记录的 cwd 放回 sessions/<项目> 并重新挂到对应工作区。",
+          "trash.turns": "轮次",
+          "trash.steps": "步骤",
+          "trash.section.trash": "已删除的会话",
+          "trash.section.archived": "已归档的会话",
+          "archive.description": "归档是宿主的「视图选项 → 仅显示已归档」那一套：会话被隐藏，但日志仍在 sessions/ 里，原工作区的槽位也保留着。这里可以取消归档、移入回收站，或者彻底删除。",
+          "archive.empty": "没有已归档的会话。",
+          "archive.unarchive": "取消归档",
+          "archive.delete": "移到回收站",
+          "archive.forget": "彻底删除",
+          "archive.confirmUnarchive": "把这个会话放回原工作区的原位置？",
+          "archive.confirmDelete": "把这个会话移入回收站？之后仍可在上面一栏恢复。",
+          "archive.confirmForget": "彻底删除这个会话的日志？不可恢复。",
+          "archive.unarchived": "已取消归档，会话回到原来的位置。",
+          "archive.deleted": "已移入回收站，可在「已删除的会话」里恢复。",
+          "archive.forgotten": "已彻底删除。",
+          "archive.failed": "归档操作失败：",
+          "archive.noWorkspace": "（它原来的目录现在没有对应的工作区，需要先建一个同名工作区才能看到它）",
+          "archive.badge": "已归档",
+          "archive.blank": "空白草稿",
+          "archive.workspace": "工作区",
+          "move.failed": "移动失败：",
+          "stats.chart": "消耗分布",
+          "composer.analysis": "用量分析",
+          "stats.legend.args": "参数（模型写的）",
+          "stats.legend.results": "结果（环境返回的）",
+          "stats.argModeNote": "当前把工具参数计入主 agent：每个工具只算返回结果，表格里「参数」列显示为淡色（那些 token 记在主 agent 那一行）。",
+          "stats.amplified.title": "放大成本（账单归因）",
+          "stats.amplified.summary": "账单 {bill} token；可归因内容经重读放大后占 {share}（{attributed}）",
+          "stats.amplified.contextCaption": "每步上下文（面积≈账单）：越早进入的内容被重读越多",
+          "stats.amplified.point": "第 {step} 步 · {context}",
+          "stats.amplified.meta": "第 {entry} 步进入 · {tokens} token × {remaining} 次重读",
+          "stats.amplified.whatIf": "若压到 20%，可省 {save}（{share}）",
+          "stats.amplified.empty": "没有可归因的放大内容（压缩后或旧日志可能缺失）",
+          "stats.amplified.note": "放大成本按内容长度估算；账单总量来自真实 usage。思维链通常不回传，故未计入。",
+          "stats.amplified.results": "工具结果",
+          "stats.amplified.args": "工具参数",
+          "stats.amplified.agent": "主 agent 输出",
+          "stats.amplified.user": "用户消息",
+          "stats.amplified.system": "系统消息",
+          "stats.tab.distribution": "分布统计",
+          "stats.tab.amplified": "放大归因",
+          "stats.tab.details": "明细",
+          "trash.confirm": "\u5220\u9664\u8fd9\u4e2a\u4f1a\u8bdd\uff1f\n\n\u4f1a\u5148\u505c\u6b62\u5b83\u6b63\u5728\u8fdb\u884c\u7684\u5de5\u4f5c\uff0c\u518d\u628a\u65e5\u5fd7\u76ee\u5f55\u79fb\u5165\u56de\u6536\u7ad9\uff08\u4e0d\u662f\u7269\u7406\u5220\u9664\uff0c\u53ef\u4ee5\u624b\u52a8\u6062\u590d\uff09\u3002",
+          "trash.failed": "\u5220\u9664\u5931\u8d25\uff1a",
+          "confirm.cancel": "\u53d6\u6d88",
+          "confirm.ok": "\u786e\u8ba4",
+        };
+        var EN = {
+          "settings.title": "Fold history after (days)",
+          "settings.description": "Sessions with no update for this many days are folded; a workspace older than that shows as a bare header.",
+          "settings.exempt": "Never fold the selected, running or waiting session",
+          "fold.show": "Show history ({n})",
+          "fold.hide": "Hide history",
+          "pins.title": "Pinned workspaces",
+          "pins.description": "Groups are ordered by latest activity by default. Drag a workspace title above the divider, or click the pin at the right of the title, to pin the whole workspace; pinned workspaces keep the order you drop them in. Drag a pinned workspace below the divider, or click the pin again, to unpin it.",
+          "pins.empty": "No pinned workspaces yet - drag a workspace title to the top of the sidebar, or click the pin at the right of its title.",
+          "pins.unpin": "Unpin",
+          "pins.pinWorkspace": "Pin this workspace",
+          "pins.unpinWorkspace": "Unpin this workspace",
+          "pins.clear": "Unpin all",
+          "pins.head": "Pinned workspaces",
+          "pins.dropHere": "Drop here to pin to the top",
+          "pins.hintPin": "Release: pin to the top",
+          "pins.hintReorder": "Release: reorder pins",
+          "pins.hintUnpin": "Release: unpin",
+          "pins.hintUnpinned": "Release: keep latest-activity order",
+          "argmode.title": "Count tool arguments as the agent's writing",
+          "argmode.description": "A tool's arguments are what the model wrote (a shell command, a file body), so they arguably belong to the agent rather than to the tool. When this is on, the usage chart counts only tool results and moves the argument tokens onto the agent.",
+          "argmode.enabled": "Tool arguments count for the agent",
+          "menu.trash": "Delete session (move to trash)",
+          "menu.stats": "Token statistics",
+          "stats.title": "Token statistics",
+          "stats.loading": "Counting\u2026 (a large session takes a second or two)",
+          "stats.failed": "Statistics failed: ",
+          "stats.steps": "steps",
+          "stats.input": "input (uncached)",
+          "stats.cache": "cache read",
+          "stats.output": "output",
+          "stats.total": "total",
+          "stats.agent": "main agent",
+          "stats.col.source": "source",
+          "stats.col.calls": "calls",
+          "stats.col.args": "args",
+          "stats.col.results": "results",
+          "stats.col.total": "estimate",
+          "stats.col.share": "share",
+          "stats.note": "Totals come from the recorded per-step usage (cache read + input + output). The per-source split is estimated from content length (about 1 token per CJK character, 4 characters per token otherwise) so the shares are comparable, not billable.",
+          "stats.agentDetail": "Agent composition: reasoning {reasoning} \u00b7 reply {text} \u00b7 user messages {user} \u00b7 system prompt {system}",
+          "stats.diagnose.unmounted": "\n\n(the host half is loaded but the statistics route did not mount - restart the app and retry)",
+          "stats.diagnose.noHost": "\n\n(the host half is not loaded: restart the app to pick up the new version)",
+          "menu.move": "Move to workspace\u2026",
+          "menu.handoff": "Hand off to a new session",
+          "handoff.title": "Session handoff",
+          "handoff.note": "The instruction is in the composer (or copy it yourself). Once you send it I watch for the handoff block and can carry it into a fresh Session.",
+          "handoff.instruction": "I am handing this session over to a new one. Please answer with a handoff note inside a ~~~handoff code block (three tildes, tagged handoff), which I will pass on verbatim:\n\n1. Reference documents by path with one line on why to read them; never paste document contents.\n2. Order them by importance and mark which are required and which are optional.\n3. Cover: goal, current progress, remaining work and next step, key decisions and constraints, pitfalls, and how to verify.\n4. Keep the note under 400 words (references excluded).",
+          "handoff.inserted": "Instruction placed in the composer; press Enter and I will pick up the reply.",
+          "handoff.copyHint": "Could not write into the composer; copy the instruction and paste it yourself.",
+          "handoff.copy": "Copy instruction",
+          "handoff.waiting": "Waiting for the handoff block… ({n}s)",
+          "handoff.found": "Handoff found. Confirming opens a new Session in this workspace with it carried over.",
+          "handoff.confirm": "Confirm and open new Session",
+          "handoff.more": "Keep refining",
+          "handoff.noService": "Could not open a Session automatically; the handoff was copied to the clipboard.",
+          "handoff.preamble": "Below is a handoff note from the previous Session. Read the referenced documents first, then continue from the notes; do not redo what is already done.",
+          "handoff.footnote": "A copy is saved under .wsr/handoff/ for later reference.",
+          "handoff.preparing": "Preparing the handoff; waiting for this turn to finish…",
+          "handoff.pressEnter": "The instruction is in the composer; press Enter to send it (automatic send did not take).",
+          "handoff.cancel": "Cancel handoff",
+          "handoff.confirmDesc": "Open a new Session in this workspace with this note",
+          "handoff.regen": "Not good enough, regenerate",
+          "handoff.regenDesc": "Ask the current Session to write it again with the same rules",
+          "handoff.extraPlaceholder": "Adjustments (if filled, the note is rewritten with them: more constraints, less history, …)",
+          "handoff.preview": "Show note",
+          "handoff.submit": "Submit",
+          "handoff.eyebrow": "Needs your decision",
+          "handoff.regeneratePrompt": "Rewrite the handoff note with the same rules as before, again inside a ~~~handoff block.",
+          "handoff.adjustPrompt": "Rewrite the handoff note following these adjustments, keeping the ~~~handoff block format:",
+          "move.title": "Move to workspace",
+          "move.warning": "Only the session moves: files it created or changed in the old workspace stay where they are.",
+          "move.note": "A session belongs to the workspace of the directory it was created in. Moving rewrites the stored cwd, relocates the log and keeps the old one as a backup in .trash/ws-recency.",
+          "move.confirm": "Move this session to \"{workspace}\"?\n\nOnly the session record moves; its files stay in the old workspace.",
+          "move.current": "current",
+          "move.working": "Moving\u2026 (the session is stopped first)",
+          "move.done": "Moved to \"{workspace}\". If the list has not refreshed, switch workspaces or restart the app.",
+          "move.doneLive": "\n\nThe session was open: restart the app before continuing it so it does not keep using the old directory.",
+          "move.repaired": "Registered in \"{workspace}\": the previous attempt moved the log without the bookkeeping, and this repaired it.",
+          "adopt.title": "Adopt unlisted sessions",
+          "adopt.description": "Repairs session membership: re-attaches sessions whose directory belongs to a workspace but are listed nowhere, and clears stale memberships that make one session appear twice.",
+          "adopt.action": "Scan and reload",
+          "adopt.working": "Scanning\u2026",
+          "adopt.done": "Re-attached {n} session(s).",
+          "adopt.cleaned": " Cleared {n} stale membership(s).",
+          "adopt.failed": "Scan failed: ",
+          "search.title": "Search session content",
+          "search.placeholder": "Type a word and press Enter; separate words with spaces to require all of them",
+          "search.run": "Search",
+          "search.searching": "Searching\u2026",
+          "search.indexing": "Still indexing {n} session(s); results will fill in\u2026",
+          "search.summary": "{hits} hit(s) across {sessions} session(s) \u00b7 {ms} ms",
+          "search.empty": "Nothing matched.",
+          "search.failed": "Search failed: ",
+          "search.you": "You",
+          "search.assistant": "Assistant",
+          "search.turn": "turn {n}",
+          "ui.reload": "Reload UI",
+          "ui.refresh": "Refresh",
+          "trash.title": "Trash",
+          "trash.description": "Deleted sessions land here (their log directory). Restore them, or delete them for good.",
+          "trash.open": "Open",
+          "trash.loading": "Loading\u2026",
+          "trash.empty": "The trash is empty.",
+          "trash.reason.delete": "deleted",
+          "trash.reason.move": "old copy from a move",
+          "trash.restore": "Restore",
+          "trash.purge": "Delete for good",
+          "trash.confirmRestore": "Restore it to its original workspace?",
+          "trash.confirmPurge": "Delete this log for good? This cannot be undone.",
+          "trash.restored": "Restored and re-attached to its workspace. If the sidebar has not picked it up, press \"Reload UI\" below, or use \"Scan and reload\" at the top right of this panel.",
+          "trash.purged": "Deleted for good.",
+          "trash.working": "Working\u2026",
+          "trash.failed": "Action failed: ",
+          "trash.note": "Every entry is a complete log directory; restoring puts it back under sessions/<project> using the recorded cwd and re-attaches it.",
+          "trash.turns": "turns",
+          "trash.steps": "steps",
+          "trash.section.trash": "Deleted sessions",
+          "trash.section.archived": "Archived sessions",
+          "archive.description": "Archiving is the Host's own view filter (\"Show archived only\"): the session is hidden, but its log stays under sessions/ and its workspace still holds its slot. Unarchive it here, move it into the trash, or delete it for good.",
+          "archive.empty": "No archived sessions.",
+          "archive.unarchive": "Unarchive",
+          "archive.delete": "Move to trash",
+          "archive.forget": "Delete for good",
+          "archive.confirmUnarchive": "Put this session back where it was in its workspace?",
+          "archive.confirmDelete": "Move this session into the trash? You can still restore it from the section above.",
+          "archive.confirmForget": "Delete this session's log for good? This cannot be undone.",
+          "archive.unarchived": "Unarchived: the session is back in its place.",
+          "archive.deleted": "Moved into the trash; restore it from \"Deleted sessions\".",
+          "archive.forgotten": "Deleted for good.",
+          "archive.failed": "Archive action failed: ",
+          "archive.noWorkspace": " (its original directory has no workspace right now - create one with the same path to see it again)",
+          "archive.blank": "blank draft",
+          "archive.workspace": "workspace",
+          "move.failed": "Move failed: ",
+          "stats.chart": "Where the tokens went",
+          "composer.analysis": "Usage analysis",
+          "stats.legend.args": "arguments (written by the model)",
+          "stats.legend.results": "results (returned by the environment)",
+          "stats.argModeNote": "Tool arguments currently count towards the agent: each tool shows only its results, and the table's \"args\" column is faded because those tokens sit on the agent's row.",
+          "stats.amplified.title": "Amplified cost (what the bill pays for)",
+          "stats.amplified.summary": "Bill {bill} tokens; attributable content amplifies to {share} ({attributed})",
+          "stats.amplified.contextCaption": "Context per step (area ≈ bill): earlier content is re-read more",
+          "stats.amplified.point": "step {step} · {context}",
+          "stats.amplified.meta": "entered at step {entry} · {tokens} tokens × {remaining} re-reads",
+          "stats.amplified.whatIf": "at 20%, saves {save} ({share})",
+          "stats.amplified.empty": "No amplifiable content (compacted or older logs may lack it)",
+          "stats.amplified.note": "Amplified cost is estimated from content length; the bill total comes from real usage. Reasoning is usually not resent, so it is excluded.",
+          "stats.amplified.results": "tool results",
+          "stats.amplified.args": "tool arguments",
+          "stats.amplified.agent": "agent output",
+          "stats.amplified.user": "user messages",
+          "stats.amplified.system": "system messages",
+          "stats.tab.distribution": "Distribution",
+          "stats.tab.amplified": "Amplified",
+          "stats.tab.details": "Details",
+          "trash.confirm": "Delete this session?\n\nIt stops whatever the session is running, then moves the log directory into the trash folder (a move, not an erase: you can restore it by hand).",
+          "trash.failed": "Delete failed: ",
+          "confirm.cancel": "Cancel",
+          "confirm.ok": "Confirm",
+        };
+
+        /* Resolved lazily: the dictionaries are declared further down this closure. */
+        var resolvedDictionary = null;
+
+        function fallbackDictionary() {
+          if (resolvedDictionary !== null) return resolvedDictionary;
+          var language = "";
+          /* The page's own lang wins: it is what the UI is actually rendered in. */
+          try { if (typeof document !== "undefined" && document.documentElement !== null && document.documentElement !== undefined) language = document.documentElement.lang || ""; } catch (error) { language = ""; }
+          try { if (language === "" && typeof navigator !== "undefined" && navigator.language) language = navigator.language; } catch (error) { /* keep empty */ }
+          resolvedDictionary = String(language).toLowerCase().indexOf("zh") === 0 ? ZH : EN;
+          return resolvedDictionary;
+        }
+
+        function t(key, params) {
+          if (typeof data.t === "function") {
+            var translated = null;
+            try { translated = data.t(key, params); } catch (error) { translated = null; }
+            if (typeof translated === "string" && translated !== key) return translated;
+          }
+          var dictionary = fallbackDictionary();
+          var text = (dictionary && dictionary[key]) || key;
+          /* The host's translate may interpolate; the local fallback has to do
+             it itself, or every template would render its braces verbatim. */
+          if (params !== undefined && params !== null) {
+            for (var name in params) {
+              if (!Object.prototype.hasOwnProperty.call(params, name)) continue;
+              text = text.split("{" + name + "}").join(String(params[name]));
+            }
+          }
+          return text;
+        }
+
+        function top() {
+          return typeof document !== "undefined" && document.body !== null ? document.body : null;
+        }
+
+        function log(message, detail) {
+          if (window.__DSH_WSR_DEBUG__ === true) console.debug("[dsh-ws-recency] " + message, detail === undefined ? "" : detail);
+        }
+
+        function installCss() {
+          if (typeof document === "undefined") return;
+          if (document.querySelector('style[data-plugin-css="' + CSS_ID + '"]') !== null) return;
+          var tag = document.createElement("style");
+          tag.dataset.plugin = "dsh-ws-recency";
+          tag.dataset.pluginCss = CSS_ID;
+          tag.textContent = CSS;
+          document.head.appendChild(tag);
+        }
+
+        function settingsOf() {
+          var settings = data.settings || {};
+          var days = Number(settings.foldDays);
+          if (!Number.isFinite(days)) days = DEFAULT_DAYS;
+          return {
+            enabled: settings.enabled !== false,
+            foldDays: Math.min(MAX_DAYS, Math.max(MIN_DAYS, Math.round(days))),
+            keepActive: settings.keepActive !== false,
+            pinnedWorkspaces: normalizeWorkspaceIds(settings.pinnedWorkspaces),
+            argMode: settings.argMode === "agent" ? "agent" : "tool",
+          };
+        }
+
+        /** A persisted list of workspace ids: strings only, no duplicates, order kept. */
+        function normalizeWorkspaceIds(value) {
+          var out = [];
+          if (!Array.isArray(value)) return out;
+          var seen = {};
+          for (var i = 0; i < value.length; i += 1) {
+            var id = value[i];
+            if (typeof id !== "string" || id === "" || seen[id] === true) continue;
+            seen[id] = true;
+            out.push(id);
+          }
+          return out;
+        }
+
+        /** The saved pins that still name a workspace the Host currently lists. */
+        function pinnedWorkspaceIds(settings, workspaces) {
+          var saved = (settings !== null && settings !== undefined && Array.isArray(settings.pinnedWorkspaces))
+            ? settings.pinnedWorkspaces
+            : [];
+          if (workspaces === null || workspaces === undefined) return saved.slice();
+          var known = {};
+          var items = workspaces.items || [];
+          for (var i = 0; i < items.length; i += 1) {
+            var item = items[i];
+            if (item !== null && item !== undefined && typeof item.workspaceId === "string") known[item.workspaceId] = true;
+          }
+          var out = [];
+          for (var j = 0; j < saved.length; j += 1) if (known[saved[j]] === true) out.push(saved[j]);
+          return out;
+        }
+
+        function latestByWorkspace(sessions, workspaces) {
+          var map = new Map();
+          if (sessions === null || workspaces === null) return map;
+          var byId = sessions.byId || {};
+          var items = workspaces.items || [];
+          var archived = new Set(workspaces.archivedSessionIds || []);
+          for (var i = 0; i < items.length; i += 1) {
+            var workspace = items[i];
+            var ids = workspace.sessionIds || [];
+            var latest = typeof workspace.createdAt === "number" ? workspace.createdAt : 0;
+            for (var j = 0; j < ids.length; j += 1) {
+              var session = byId[ids[j]];
+              if (session === undefined || session === null) continue;
+              if (session.blank === true) continue;
+              if (session.origin === "subagent") continue;
+              if (archived.has(session.id)) continue;
+              var updated = typeof session.updatedAt === "number" ? session.updatedAt : 0;
+              if (updated > latest) latest = updated;
+            }
+            map.set(workspace.workspaceId, latest);
+          }
+          return map;
+        }
+
+        function sectionOf(header) {
+          var current = header.parentElement;
+          while (current !== null) {
+            var className = typeof current.className === "string" ? current.className : "";
+            if (className.indexOf(SECTION_TOKEN) !== -1) return current;
+            current = current.parentElement;
+          }
+          return null;
+        }
+
+        function collect() {
+          var out = [];
+          var headers = document.querySelectorAll('[data-row-key^="' + HEADER_PREFIX + '"]');
+          for (var i = 0; i < headers.length; i += 1) {
+            var header = headers[i];
+            var section = sectionOf(header);
+            if (section === null) continue;
+            var key = header.getAttribute("data-row-key") || "";
+            out.push({
+              header: header,
+              section: section,
+              key: key,
+              id: key.slice(HEADER_PREFIX.length),
+            });
+          }
+          return out;
+        }
+
+        function busyRankOf(section) {
+          var raw = section.getAttribute(BUSY_RANK_ATTR);
+          if (raw === null || raw === "") return 0;
+          var value = Number(raw);
+          return Number.isFinite(value) ? value : 0;
+        }
+
+        function ready(snapshot) {
+          if (snapshot === null || snapshot === undefined) return false;
+          return snapshot.phase === undefined || snapshot.phase === "ready";
+        }
+
+        /** True when this group lives inside another group (workspace tree nesting). */
+        function nestedSection(section) {
+          var current = section.parentElement;
+          while (current !== null && current !== undefined) {
+            var className = typeof current.className === "string" ? current.className : "";
+            if (className.indexOf(SECTION_TOKEN) !== -1) return true;
+            current = current.parentElement;
+          }
+          return false;
+        }
+
+        /**
+         * Put every group in its place: pinned workspaces first (in the order the
+         * user dragged them), then the ones the user did not pin by urgency band
+         * and latest activity. With pins, one slot is left between the two
+         * regions for the divider; without pins the divider hides above the list.
+         *
+         * Returns the arrangement the drag session reads: the groups in display
+         * order, how many of them lead, and the container they live in.
+         */
+        function orderGroups(entries, latest, pinnedIds) {
+          var byParent = new Map();
+          for (var i = 0; i < entries.length; i += 1) {
+            var section = entries[i].section;
+            /* Workspace trees nest child groups inside the parent section. Only
+               the top level takes the recency order and the pin block; nested
+               groups keep the Host's own hierarchy/order. */
+            if (nestedSection(section)) continue;
+            var parent = section.parentElement;
+            if (parent === null) continue;
+            var list = byParent.get(parent);
+            if (list === undefined) {
+              list = [];
+              byParent.set(parent, list);
+            }
+            list.push(entries[i]);
+          }
+          var pinnedRank = new Map();
+          for (var p = 0; p < pinnedIds.length; p += 1) pinnedRank.set(pinnedIds[p], p);
+          var arrangement = { groups: [], pinnedCount: 0, container: null };
+          var primary = null;
+          byParent.forEach(function (groupList, groupParent) {
+            if (groupParent.getAttribute(ROOT_ATTR) !== "true") {
+              groupParent.setAttribute(ROOT_ATTR, "true");
+              roots.add(groupParent);
+            }
+            var real = [];
+            var tail = [];
+            for (var j = 0; j < groupList.length; j += 1) {
+              if (groupList[j].id === "") tail.push(groupList[j]);
+              else real.push(groupList[j]);
+            }
+            real.sort(function (a, b) {
+              var pa = pinnedRank.has(a.id) ? pinnedRank.get(a.id) : -1;
+              var pb = pinnedRank.has(b.id) ? pinnedRank.get(b.id) : -1;
+              if ((pa >= 0) !== (pb >= 0)) return pa >= 0 ? -1 : 1;
+              if (pa >= 0 && pa !== pb) return pa - pb;
+              var ra = busyRankOf(a.section);
+              var rb = busyRankOf(b.section);
+              if (ra !== rb) return rb - ra;
+              var la = latest.get(a.id) || 0;
+              var lb = latest.get(b.id) || 0;
+              return lb - la;
+            });
+            var pinnedCount = 0;
+            while (pinnedCount < real.length && pinnedRank.has(real[pinnedCount].id)) pinnedCount += 1;
+            for (var k = 0; k < real.length; k += 1) {
+              var section = real[k].section;
+              var pinned = k < pinnedCount;
+              /* With pins the divider sits at `pinnedCount`, so everything below
+                 gets one extra slot; without pins the divider hides above the
+                 list (order -1) and the recency order starts at zero. */
+              var value = String(pinned ? k : (pinnedCount > 0 ? k + 1 : k));
+              if (section.style.order !== value) section.style.order = value;
+              if (section.getAttribute(RANK_ATTR) !== value) section.setAttribute(RANK_ATTR, value);
+              if (pinned) {
+                if (section.getAttribute(PINNED_ATTR) !== "true") section.setAttribute(PINNED_ATTR, "true");
+              } else if (section.getAttribute(PINNED_ATTR) !== null) {
+                section.removeAttribute(PINNED_ATTR);
+              }
+              written.add(section);
+            }
+            for (var t = 0; t < tail.length; t += 1) {
+              var tailSection = tail[t].section;
+              var tailValue = String(real.length + (pinnedCount > 0 ? 1 : 0));
+              if (tailSection.style.order !== tailValue) tailSection.style.order = tailValue;
+              if (tailSection.getAttribute(RANK_ATTR) !== tailValue) tailSection.setAttribute(RANK_ATTR, tailValue);
+              if (tailSection.getAttribute(PINNED_ATTR) !== null) tailSection.removeAttribute(PINNED_ATTR);
+              written.add(tailSection);
+            }
+            if (primary === null || groupList.length > primary.size) {
+              primary = { size: groupList.length, groups: real, pinnedCount: pinnedCount, container: groupParent };
+            }
+          });
+          if (primary !== null) {
+            arrangement.groups = primary.groups;
+            arrangement.pinnedCount = primary.pinnedCount;
+            arrangement.container = primary.container;
+          }
+          return arrangement;
+        }
+
+        /** Direct children of a group that carry a Session row (the host wraps some). */
+        function rowElements(section) {
+          var out = [];
+          var children = section.children || [];
+          for (var i = 0; i < children.length; i += 1) {
+            var child = children[i];
+            if (child.getAttribute !== undefined && child.getAttribute("role") === "group") continue;
+            if (child.tagName === "BUTTON") continue;
+            if (child.dataset !== undefined && child.dataset !== null && child.dataset.dshUxPlus !== undefined) continue;
+            var own = child.getAttribute !== undefined ? child.getAttribute("data-row-key") : null;
+            if (typeof own === "string" && own.indexOf(SESSION_PREFIX) === 0) {
+              out.push(child);
+              continue;
+            }
+            if (typeof child.querySelector === "function" && child.querySelector('[data-row-key^="' + SESSION_PREFIX + '"]') !== null) out.push(child);
+          }
+          return out;
+        }
+
+        function isActiveRow(row) {
+          if (typeof row.querySelector !== "function") return false;
+          return row.querySelector('[data-state="ongoing"], [data-state="warning"]') !== null;
+        }
+
+        function isSelectedRow(row) {
+          if (typeof row.getAttribute !== "function") return false;
+          return row.getAttribute("aria-selected") === "true";
+        }
+
+        function sessionIdOf(row) {
+          var key = typeof row.getAttribute === "function" ? row.getAttribute("data-row-key") : null;
+          if (typeof key !== "string" || key.indexOf(SESSION_PREFIX) !== 0) {
+            if (typeof row.querySelector === "function") {
+              var inner = row.querySelector('[data-row-key^="' + SESSION_PREFIX + '"]');
+              if (inner !== null) key = inner.getAttribute("data-row-key");
+            }
+          }
+          return typeof key === "string" && key.indexOf(SESSION_PREFIX) === 0 ? key.slice(SESSION_PREFIX.length) : null;
+        }
+
+        function updatedAtOf(row, sessions) {
+          var id = sessionIdOf(row);
+          if (id === null || sessions === null) return null;
+          var session = (sessions.byId || {})[id];
+          if (session === undefined || session === null) return null;
+          return typeof session.updatedAt === "number" ? session.updatedAt : null;
+        }
+
+        /**
+         * The provisional "New session" row. The host always renders it, and folding
+         * it would remove the very input row you are typing into.
+         */
+        function isBlankRow(row, sessions) {
+          if (sessions === null || sessions === undefined) return false;
+          var id = sessionIdOf(row);
+          if (id === null) return false;
+          var session = (sessions.byId || {})[id];
+          return session !== undefined && session !== null && session.blank === true;
+        }
+
+        /** The host's own "show more" button, hidden by CSS but still clickable. */
+        function overflowButtonOf(section) {
+          if (typeof section.querySelector !== "function") return null;
+          return section.querySelector('button[class*="' + OVERFLOW_TOKEN + '"]');
+        }
+
+        /** The count the host reports on its own button, 0 when there is none. */
+        function labelNumber(button) {
+          if (button === null || button === undefined) return 0;
+          var text = typeof button.textContent === "string" ? button.textContent : "";
+          var match = /\d+/.exec(text);
+          if (match === null) return 0;
+          var value = Number(match[0]);
+          return Number.isFinite(value) && value > 0 ? value : 0;
+        }
+
+        /** Collapsing a group resets its fold state, so the click is observed. */
+        function markHeader(header, key) {
+          if (typeof header.addEventListener !== "function" || headerMarked.has(header)) return;
+          headerMarked.add(header);
+          header.addEventListener("click", function () {
+            if (disposed) return;
+            expandedSections.delete(key);
+            schedule();
+          });
+        }
+
+        /** The group's own "show history" control, created only when something is folded. */
+        function ensureToggle(section, key, label, onClick) {
+          var button = section.querySelector('[data-wsr-fold="true"]');
+          if (button === null) {
+            button = document.createElement("button");
+            button.type = "button";
+            button.className = "wsr-toggle";
+            button.setAttribute(FOLD_ATTR, "true");
+            button.addEventListener("click", function (event) {
+              if (disposed) return;
+              if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+              var current = button.wsrOnClick;
+              if (typeof current === "function") current();
+            });
+            section.appendChild(button);
+            toggles.add(button);
+          }
+          /* The handler is refreshed every pass: the button toggles between "show"
+             and "hide", and a captured first callback would only ever show. */
+          button.wsrOnClick = onClick;
+          if (button.textContent !== label) button.textContent = label;
+          return button;
+        }
+
+        function dropToggle(section) {
+          var button = section.querySelector('[data-wsr-fold="true"]');
+          if (button !== null) {
+            toggles.delete(button);
+            button.remove();
+          }
+        }
+
+        /**
+         * Fold the rows the host rendered that have not changed for `foldDays`, and
+         * offer the group's own control to bring them back. A workspace whose every
+         * session is that old therefore renders as a bare header.
+         *
+         * The host's own "show more" button is hidden (CSS) and driven from here: it
+         * only renders five rows at a time and cannot collapse once everything is
+         * rendered, which made "show more" look broken next to a fold. Expanding the
+         * group now clicks that hidden button once per pass until the host has
+         * rendered every session, so one click reveals everything; collapsing just
+         * folds the stale rows again.
+         */
+        function foldRows(entries, settings, sessions, now) {
+          var cutoff = now - settings.foldDays * DAY;
+          for (var i = 0; i < entries.length; i += 1) {
+            var entry = entries[i];
+            var section = entry.section;
+            var rows = rowElements(section);
+            var hostButton = overflowButtonOf(section);
+            markHeader(entry.header, entry.key);
+
+            var expanded = expandedSections.has(entry.key);
+            var hostHidden = hostButton === null ? 0 : labelNumber(hostButton);
+            var hostExpanded = hostButton !== null
+              && typeof hostButton.getAttribute === "function"
+              && hostButton.getAttribute("aria-expanded") === "true";
+            if (expanded && hostButton !== null && !hostExpanded) {
+              /* The host renders five more per click (or everything when five or
+                 fewer remain) and reports `aria-expanded` once nothing is hidden.
+                 Stopping on that flag is what keeps the loop from collapsing the
+                 very thing it just expanded - a click on an expanded host button
+                 resets the watermark. */
+              var used = expandClicks.get(entry.key) || 0;
+              if (used < MAX_EXPAND_CLICKS) {
+                expandClicks.set(entry.key, used + 1);
+                hostButton.click();
+              }
+            } else if (!expanded) {
+              expandClicks.delete(entry.key);
+            }
+
+            var folded = 0;
+            for (var j = 0; j < rows.length; j += 1) {
+              var row = rows[j];
+              var updated = updatedAtOf(row, sessions);
+              var stale = updated !== null && updated < cutoff;
+              var blank = isBlankRow(row, sessions);
+              var exempt = settings.keepActive && (isActiveRow(row) || isSelectedRow(row));
+              var hide = !expanded && stale && !exempt && !blank;
+              if (hide) {
+                if (row.getAttribute(HIDDEN_ATTR) !== "true") row.setAttribute(HIDDEN_ATTR, "true");
+                hidden.add(row);
+                folded += 1;
+              } else {
+                if (row.getAttribute(HIDDEN_ATTR) !== null) row.removeAttribute(HIDDEN_ATTR);
+                hidden.delete(row);
+              }
+            }
+
+            /* ONE control per group: its count is everything the group still hides,
+               both the rows the host did not render and the stale rows this plugin
+               folded. Expanding drives the hidden host button until nothing is left
+               unrendered, so one click reveals the whole group. */
+            var remaining = folded + hostHidden;
+            if (expanded) {
+              (function (entryKey) {
+                ensureToggle(section, entryKey, t("fold.hide"), function () {
+                  expandedSections.delete(entryKey);
+                  expandClicks.delete(entryKey);
+                  schedule();
+                });
+              })(entry.key);
+            } else if (remaining > 0) {
+              (function (entryKey) {
+                ensureToggle(section, entryKey, t("fold.show", { n: remaining }), function () {
+                  expandedSections.add(entryKey);
+                  schedule();
+                });
+              })(entry.key);
+            } else {
+              dropToggle(section);
+            }
+          }
+        }
+
+        function baseName(path) {
+          if (typeof path !== "string" || path === "") return "";
+          var parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
+          return parts.length === 0 ? path : parts[parts.length - 1];
+        }
+
+        /**
+         * The browser's workspace-navigation service (`uiWorkspace`).
+         *
+         * Resolved late on purpose: a client plugin can apply before the Workspace
+         * UI has provided the service, and cordis refuses un-injected service
+         * access. The value is cached once it is available and re-asked on use
+         * until then, so a plugin that lost the race still navigates.
+         */
+        function workspaceService() {
+          if (data.service !== null && data.service !== undefined) return data.service;
+          var ctx = data.ctx;
+          if (ctx === null || ctx === undefined) return null;
+          try {
+            var service = typeof ctx.get === "function" ? ctx.get("uiWorkspace") : undefined;
+            if (service !== null && service !== undefined) data.service = service;
+          } catch (error) {
+            /* not resolvable from this context yet */
+          }
+          return data.service === undefined ? null : data.service;
+        }
+
+        /**
+         * Open a session from a plugin page (a search hit).
+         *
+         * The service call is the one the host's own rows make, so it is the
+         * primary path. If the service is unreachable or throws, fall back to the
+         * host's own row for that session and let the app navigate itself.
+         */
+        function openSessionRow(sessionId) {
+          var service = workspaceService();
+          if (service !== null && typeof service.openSession === "function") {
+            try {
+              service.openSession(sessionId);
+              return true;
+            } catch (error) {
+              log("openSession threw; falling back to the host row", error);
+            }
+          }
+          var row = null;
+          try {
+            row = document.querySelector('[data-row-key="session:' + sessionId + '"]');
+          } catch (error) {
+            row = null;
+          }
+          if (row !== null && typeof row.click === "function") {
+            try {
+              /* Some row handlers listen on mousedown: send the whole press so the
+                 host's own navigation runs whichever event it uses. */
+              if (typeof MouseEvent === "function") {
+                for (var t = 0; t < PRESS_EVENTS.length; t += 1) {
+                  row.dispatchEvent(new MouseEvent(PRESS_EVENTS[t], { bubbles: true, cancelable: true, view: typeof window === "undefined" ? null : window }));
+                }
+              }
+              row.click();
+              return true;
+            } catch (error) {
+              log("the host row could not be clicked", error);
+            }
+          }
+          return false;
+        }
+
+        /** The session the conversation view is showing, from its own DOM hook. */
+        function currentConversationId() {
+          if (typeof document === "undefined") return null;
+          var element = document.querySelector("[data-conversation-session]");
+          if (element === null || typeof element.getAttribute !== "function") return null;
+          var id = element.getAttribute("data-conversation-session");
+          return typeof id === "string" && id !== "" ? id : null;
+        }
+
+        /**
+         * The highest turn number currently rendered in the conversation.
+         *
+         * The handoff card lives in the `turnTail` slot, which renders once per
+         * turn; without this the card would appear under every reply. A running
+         * handoff may only speak from the tail of the turn it just started.
+         */
+        function latestTurnNumber() {
+          if (typeof document === "undefined") return null;
+          var body = null;
+          try { body = document.querySelector("[data-conversation-content]"); } catch (error) { body = null; }
+          var elements;
+          try {
+            elements = body !== null && body !== undefined && typeof body.querySelectorAll === "function"
+              ? body.querySelectorAll("[data-turn-tail]")
+              : (typeof document.querySelectorAll === "function" ? document.querySelectorAll("[data-turn-tail]") : []);
+          } catch (error) {
+            return null;
+          }
+          var max = null;
+          for (var i = 0; i < elements.length; i += 1) {
+            var value = Number(elements[i].getAttribute("data-turn-tail"));
+            if (!isFinite(value)) continue;
+            if (max === null || value > max) max = value;
+          }
+          return max;
+        }
+
+        /** The nearest horizontal flex row above the stats: the whole footer dock. */
+        function composerDockOf(row) {
+          var node = row;
+          for (var depth = 0; depth < 4; depth += 1) {
+            var parent = node.parentElement;
+            if (parent === null) break;
+            var style = null;
+            try {
+              style = typeof window !== "undefined" && typeof window.getComputedStyle === "function"
+                ? window.getComputedStyle(parent)
+                : null;
+            } catch (error) {
+              style = null;
+            }
+            if (style !== null && style.display === "flex" && (style.flexDirection === "row" || style.flexDirection === "")) return parent;
+            node = parent;
+          }
+          return row.parentElement === null ? row : row.parentElement;
+        }
+
+        /** The host's own pill in that row, used as the visual template. */
+        function pillTemplateOf(row) {
+          if (typeof row.querySelector !== "function") return null;
+          var button = row.querySelector('button[class*="_pill"]');
+          return button !== null ? button : row.querySelector('[class*="_pill"]');
+        }
+
+        function cloneIconOf(template) {
+          if (template === null || typeof template.querySelector !== "function") return null;
+          var icon = template.querySelector("svg");
+          if (icon === null || typeof icon.cloneNode !== "function") return null;
+          try { return icon.cloneNode(true); } catch (error) { return null; }
+        }
+
+        /** Copy the host pill's own computed metrics onto the clone. */
+        function copyPillMetrics(template, wrapper, button) {
+          if (template === null || template === undefined || typeof window === "undefined" || typeof window.getComputedStyle !== "function") return;
+          var read = function (name) {
+            try {
+              return window.getComputedStyle(template).getPropertyValue(name) || "";
+            } catch (error) {
+              return "";
+            }
+          };
+          var inherited = ["font-size", "font-family", "font-weight", "line-height", "letter-spacing"];
+          for (var i = 0; i < inherited.length; i += 1) {
+            var value = read(inherited[i]);
+            if (value !== "") {
+              wrapper.style[inherited[i]] = value;
+              button.style[inherited[i]] = value;
+            }
+          }
+          var own = ["padding", "gap", "border-radius", "color"];
+          for (var j = 0; j < own.length; j += 1) {
+            var metric = read(own[j]);
+            if (metric !== "") button.style[own[j]] = metric;
+          }
+        }
+
+        /**
+         * Add one pill at the END of the composer footer that opens the analysis
+         * panel for the conversation on screen.
+         *
+         * It reuses the host pill's own class names and icon so it reads as part of
+         * the same row, sits after the context ring rather than between the stats,
+         * is re-attached whenever the host re-renders, and disappears with the row.
+         */
+        function decorateComposerStats() {
+          if (typeof document === "undefined") return;
+          var existing = document.querySelector("[data-wsr-composer-analysis]");
+          var seat = document.querySelector("[data-composer-seat]");
+          var anchors = seat === null || typeof seat.querySelectorAll !== "function" ? [] : seat.querySelectorAll("[data-composer-stat]");
+          if (anchors.length === 0 || currentConversationId() === null) {
+            if (existing !== null) existing.remove();
+            composerPill = null;
+            return;
+          }
+          var row = anchors[0].parentElement;
+          if (row === null) return;
+          var dock = composerDockOf(row);
+
+          if (existing === null) {
+            var template = pillTemplateOf(row);
+            /* Wrapped exactly like a host pill (its anchor span) and carrying the
+               host's own computed metrics: appended to the footer dock rather than
+               into the stats row, this pill would otherwise inherit the dock's font
+               size and read larger than its neighbours. */
+            var wrapper = document.createElement("span");
+            wrapper.setAttribute("data-wsr-composer-analysis", "true");
+            var anchorTemplate = template === null ? null : template.parentElement;
+            var anchorClass = anchorTemplate !== null && typeof anchorTemplate.className === "string" ? anchorTemplate.className : "";
+            if (anchorClass !== "") wrapper.className = anchorClass;
+            var button = document.createElement("button");
+            button.type = "button";
+            var base = template !== null && typeof template.className === "string" ? template.className : "";
+            button.className = base === "" ? "wsr-pill" : base + " wsr-pill";
+            var icon = cloneIconOf(template);
+            if (icon !== null) button.appendChild(icon);
+            var label = document.createElement("span");
+            var labelTemplate = template === null || typeof template.querySelector !== "function" ? null : template.querySelector('[class*="_label"]');
+            label.className = labelTemplate !== null && typeof labelTemplate.className === "string" && labelTemplate.className !== ""
+              ? labelTemplate.className
+              : "wsr-pill-label";
+            label.textContent = t("composer.analysis");
+            button.appendChild(label);
+            button.addEventListener("click", function () {
+              var id = currentConversationId();
+              if (id !== null) openStatsPanel(id);
+            });
+            copyPillMetrics(template, wrapper, button);
+            wrapper.appendChild(button);
+            composerPill = wrapper;
+          } else {
+            composerPill = existing;
+          }
+          var children = dock.children || [];
+          if (composerPill.parentElement !== dock || children[children.length - 1] !== composerPill) {
+            dock.appendChild(composerPill);
+          }
+        }
+
+        /* ------------------------ workspace pinning ------------------------- *
+         * The Host owns the group elements, so pinning is expressed as flex
+         * `order` values: pinned workspaces lead in the user's own order, a thin
+         * divider marks the boundary, and everything below keeps the recency
+         * sort. Dragging a workspace header above the divider pins it; dragging
+         * a pinned header below the divider unpins it. The DOM is never moved.
+         * -------------------------------------------------------------------- */
+
+        function rectOf(element) {
+          if (element === null || element === undefined || typeof element.getBoundingClientRect !== "function") return null;
+          try {
+            var rect = element.getBoundingClientRect();
+            return rect === null || rect === undefined ? null : rect;
+          } catch (error) {
+            return null;
+          }
+        }
+
+        /** The label shown for a workspace id, falling back to the id itself. */
+        function workspaceName(workspaces, workspaceId) {
+          var items = (workspaces !== null && workspaces !== undefined && workspaces.items) || [];
+          for (var i = 0; i < items.length; i += 1) {
+            if (items[i] === null || items[i] === undefined) continue;
+            if (items[i].workspaceId !== workspaceId) continue;
+            var title = items[i].title === undefined || items[i].title === null ? "" : String(items[i].title).trim();
+            if (title !== "") return title;
+            var name = baseName(items[i].path);
+            return name === "" ? workspaceId : name;
+          }
+          return workspaceId;
+        }
+
+        /**
+         * A pin glyph for the workspace header button.
+         *
+         * The plugin cannot render a React icon inside a plain DOM button, so it
+         * uses the same pushpin silhouette at the Host's 14px row-action size.
+         */
+        function workspacePinIcon(pinned) {
+          if (typeof document === "undefined" || typeof document.createElementNS !== "function") return null;
+          try {
+            var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("width", "14");
+            svg.setAttribute("height", "14");
+            svg.setAttribute("aria-hidden", "true");
+            svg.setAttribute("fill", pinned ? "currentColor" : "none");
+            svg.setAttribute("fill-opacity", pinned ? "0.9" : "0");
+            svg.setAttribute("stroke", "currentColor");
+            svg.setAttribute("stroke-width", "1.6");
+            svg.setAttribute("stroke-linecap", "round");
+            svg.setAttribute("stroke-linejoin", "round");
+            var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", "M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z");
+            svg.appendChild(path);
+            return svg;
+          } catch (error) {
+            return null;
+          }
+        }
+
+        function paintWorkspacePinButton(button, pinned) {
+          var state = pinned ? "pinned" : "outline";
+          var label = t(pinned ? "pins.unpinWorkspace" : "pins.pinWorkspace");
+          if (button.getAttribute("data-pinned") !== (pinned ? "true" : "false")) button.setAttribute("data-pinned", pinned ? "true" : "false");
+          if (button.getAttribute("aria-pressed") !== (pinned ? "true" : "false")) button.setAttribute("aria-pressed", pinned ? "true" : "false");
+          if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
+          if (button.getAttribute("title") !== label) button.setAttribute("title", label);
+          if (button.getAttribute("data-wsr-icon-state") === state) return;
+          button.setAttribute("data-wsr-icon-state", state);
+          while (button.firstChild !== undefined && button.firstChild !== null) button.removeChild(button.firstChild);
+          var icon = workspacePinIcon(pinned);
+          if (icon !== null) button.appendChild(icon);
+        }
+
+        /** The current pin list, from the live store when it is readable. */
+        function pinSnapshot() {
+          var snapshot = settingsOf();
+          try {
+            if (prefsStore !== null && prefsStore !== undefined && typeof prefsStore.getSnapshot === "function") {
+              snapshot = prefsStore.getSnapshot() || snapshot;
+            }
+          } catch (error) {
+            /* fall back to the rendered snapshot */
+          }
+          return snapshot;
+        }
+
+        function toggleWorkspacePin(workspaceId) {
+          if (typeof workspaceId !== "string" || workspaceId === "") return;
+          var actions = data.actions;
+          if (actions === null || actions === undefined || typeof actions.setPinnedWorkspaces !== "function") return;
+          var current = pinnedWorkspaceIds(pinSnapshot(), data.workspaces);
+          var index = current.indexOf(workspaceId);
+          if (index === -1) current.push(workspaceId);
+          else current.splice(index, 1);
+          actions.setPinnedWorkspaces(current);
+          schedule();
+        }
+
+        /** Find or create the per-workspace pin button, and keep it wired once. */
+        function workspacePinButtonOf(header) {
+          var existing = header.querySelector("[" + PIN_BUTTON_ATTR + '="true"]');
+          if (existing !== null) return existing;
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "wsr-ws-pin";
+          button.setAttribute(PIN_BUTTON_ATTR, "true");
+          button.addEventListener("click", function (event) {
+            if (event !== undefined && typeof event.preventDefault === "function") event.preventDefault();
+            if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+            var key = header.getAttribute("data-row-key") || "";
+            if (key.indexOf(HEADER_PREFIX) !== 0) return;
+            toggleWorkspacePin(key.slice(HEADER_PREFIX.length));
+          });
+          /* Dragging must not start from the pin control. */
+          button.addEventListener("dragstart", function (event) {
+            if (event !== undefined && typeof event.preventDefault === "function") event.preventDefault();
+            if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+          });
+          button.addEventListener("pointerdown", function (event) {
+            if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+          });
+          pinButtons.add(button);
+          return button;
+        }
+
+        /**
+         * Put the pin control in each top-level Workspace header's own action strip.
+         *
+         * The Host owns the header and re-renders it freely, so the button is
+         * reconciled on every pass: re-attached when the strip is rebuilt and
+         * repainted only when its state changes.
+         */
+        function syncWorkspacePinButtons(entries, pinnedIds) {
+          if (typeof document === "undefined") return;
+          pinButtons.forEach(function (button) {
+            if (button.parentElement === null) pinButtons.delete(button);
+          });
+          for (var i = 0; i < entries.length; i += 1) {
+            var entry = entries[i];
+            if (entry.id === "") continue;
+            var header = entry.header;
+            if (header === null || header === undefined || typeof header.querySelector !== "function") continue;
+            var actions = header.querySelector('[class*="rowActions"]');
+            var button = workspacePinButtonOf(header);
+            if (actions !== null && actions !== undefined) {
+              if (button.parentElement !== actions) actions.appendChild(button);
+              if (button.style.position !== "") {
+                button.style.position = "";
+                button.style.right = "";
+                button.style.top = "";
+                button.style.transform = "";
+              }
+            } else {
+              if (header.style.position !== "relative") header.style.position = "relative";
+              if (button.parentElement !== header) header.appendChild(button);
+              button.style.position = "absolute";
+              button.style.right = "6px";
+              button.style.top = "50%";
+              button.style.transform = "translateY(-50%)";
+            }
+            var pinned = pinnedIds.indexOf(entry.id) !== -1;
+            paintWorkspacePinButton(button, pinned);
+            if (pinned) header.setAttribute(PIN_HEADER_ATTR, "true");
+            else if (header.getAttribute(PIN_HEADER_ATTR) !== null) header.removeAttribute(PIN_HEADER_ATTR);
+          }
+        }
+
+        function removePinButtons() {
+          pinButtons.forEach(function (button) {
+            if (button.parentElement !== null && typeof button.remove === "function") button.remove();
+          });
+          pinButtons.clear();
+          if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+            var headers = document.querySelectorAll("[" + PIN_HEADER_ATTR + "]");
+            for (var i = 0; i < headers.length; i += 1) headers[i].removeAttribute(PIN_HEADER_ATTR);
+          }
+        }
+
+
+        function removePinDivider() {
+          if (pinDivider !== null && pinDivider.parentElement !== null && typeof pinDivider.remove === "function") pinDivider.remove();
+          pinDivider = null;
+          pinDividerParent = null;
+        }
+
+        /** Create the divider once and keep it in the list container that owns the groups. */
+        function ensurePinDivider(container) {
+          if (container === null || container === undefined || typeof document === "undefined") {
+            removePinDivider();
+            return null;
+          }
+          if (pinDivider === null || pinDividerParent !== container || pinDivider.parentElement !== container) {
+            removePinDivider();
+            pinDivider = document.createElement("div");
+            pinDivider.className = "wsr-pin-divider";
+            pinDivider.setAttribute(DIVIDER_ATTR, "true");
+            pinDividerParent = container;
+            container.appendChild(pinDivider);
+          }
+          return pinDivider;
+        }
+
+        /**
+         * Place and label the divider. It is always visible while dragging (that is
+         * the drop zone for pinning) and below at least one pinned workspace.
+         */
+        function syncPinDivider(container, pinnedCount, dragging) {
+          var divider = ensurePinDivider(container);
+          if (divider === null) return;
+          divider.style.order = String(pinnedCount > 0 ? pinnedCount : -1);
+          var visible = dragging || pinnedCount > 0;
+          divider.setAttribute("data-wsr-empty", visible ? "false" : "true");
+          /* textContent replaces child nodes, which the list observer sees: only
+             write it when the label actually changes or the pass would schedule
+             itself forever. */
+          var label = "";
+          if (visible) label = dragging && pinnedCount === 0 ? t("pins.dropHere") : t("pins.head");
+          if (divider.textContent !== label) divider.textContent = label;
+          if (!visible) divider.removeAttribute("data-wsr-zone");
+        }
+
+        /** A drag that starts on a control inside the header is not a workspace drag. */
+        function interactiveInside(event, header) {
+          var target = event === undefined ? null : event.target;
+          if (target === null || target === undefined || target === header || typeof target.closest !== "function") return false;
+          var interactive = target.closest("button,[role='button'],a,input,select,textarea");
+          return interactive !== null && interactive !== header;
+        }
+
+        /** True when this id is one of the top-level groups the plugin arranges. */
+        function topLevelGroup(workspaceId) {
+          for (var i = 0; i < lastGroups.length; i += 1) if (lastGroups[i].id === workspaceId) return true;
+          return false;
+        }
+
+        /** Wire one group header as a drag source; the host may re-create it. */
+        function wireWorkspaceDrag(entries) {
+          if (typeof document === "undefined") return;
+          for (var i = 0; i < entries.length; i += 1) {
+            var entry = entries[i];
+            if (entry.id === "") continue;
+            var header = entry.header;
+            if (header === null || header === undefined || typeof header.addEventListener !== "function") continue;
+            /* The Host may re-render the header without our attribute; re-assert it
+               even when the listener is already in place. */
+            if (header.getAttribute("draggable") !== "true") header.setAttribute("draggable", "true");
+            if (header.getAttribute(DRAG_READY_ATTR) === "true") continue;
+            header.setAttribute(DRAG_READY_ATTR, "true");
+            header.addEventListener("dragstart", function (event) {
+              var current = event === undefined ? null : event.currentTarget;
+              var key = current !== null && current !== undefined && typeof current.getAttribute === "function"
+                ? current.getAttribute("data-row-key") || ""
+                : "";
+              if (key.indexOf(HEADER_PREFIX) !== 0) return;
+              var workspaceId = key.slice(HEADER_PREFIX.length);
+              /* A header that used to be top-level may have been reparented into a
+                 tree: leave that gesture to the Host's own nested-workspace drag. */
+              if (!topLevelGroup(workspaceId)) return;
+              if (interactiveInside(event, current)) return;
+              /* DSH's own workspace-row drag reorders the registry. This plugin
+                 owns the top-level order, so take the gesture over: stopping the
+                 bubble keeps React's delegated onDragStart (and its preview)
+                 from starting a second, competing drag. */
+              if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+              beginWorkspaceDrag(event, {
+                id: workspaceId,
+                header: current,
+                section: sectionOf(current),
+              });
+            });
+            header.addEventListener("dragend", function () { endWorkspaceDrag(); });
+          }
+        }
+
+        var dragListenersInstalled = false;
+
+        /** Document-level drag listeners: installed once per module lifetime. */
+        function installDragListeners() {
+          if (dragListenersInstalled || typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+          dragListenersInstalled = true;
+          document.addEventListener("dragover", onWorkspaceDragOver, true);
+          document.addEventListener("drop", onWorkspaceDrop, true);
+          document.addEventListener("dragend", onWorkspaceDragEnd, true);
+        }
+
+        function beginWorkspaceDrag(event, entry) {
+          if (disposed || dragState !== null || entry === null || entry === undefined || entry.id === "") return;
+          var header = entry.header;
+          var target = event === undefined ? null : event.target;
+          /* A drag that starts on a control inside the header (the "..." menu)
+             is not a workspace drag. The header itself may BE a button, so only
+             a different interactive ancestor counts. */
+          if (target !== null && target !== undefined && target !== header && typeof target.closest === "function") {
+            var interactive = target.closest("button,[role='button'],a,input,select,textarea");
+            if (interactive !== null && interactive !== header) {
+              if (event !== undefined && typeof event.preventDefault === "function") event.preventDefault();
+              return;
+            }
+          }
+          dragState = { id: entry.id, header: header, section: entry.section };
+          if (event !== undefined && event.dataTransfer !== undefined && event.dataTransfer !== null) {
+            try {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", "workspace:" + entry.id);
+            } catch (error) {
+              /* the drag still works without a payload */
+            }
+          }
+          if (typeof document !== "undefined" && document.body !== null) document.body.setAttribute(DRAG_BODY_ATTR, "true");
+          if (entry.section !== null && typeof entry.section.setAttribute === "function") entry.section.setAttribute(DRAGGING_ATTR, "true");
+          var divider = ensurePinDivider(entry.section === null ? null : entry.section.parentElement);
+          if (divider !== null) {
+            divider.setAttribute("data-wsr-empty", "false");
+            var label = lastPinned.length === 0 ? t("pins.dropHere") : t("pins.head");
+            if (divider.textContent !== label) divider.textContent = label;
+          }
+          schedule();
+        }
+
+        function removeDropFeedback() {
+          if (dropLine !== null && typeof dropLine.remove === "function") dropLine.remove();
+          dropLine = null;
+          if (dropHint !== null && typeof dropHint.remove === "function") dropHint.remove();
+          dropHint = null;
+        }
+
+        function endWorkspaceDrag() {
+          if (dragState === null) return;
+          var section = dragState.section;
+          if (section !== null && section !== undefined && typeof section.removeAttribute === "function") section.removeAttribute(DRAGGING_ATTR);
+          dragState = null;
+          if (typeof document !== "undefined" && document.body !== null) document.body.removeAttribute(DRAG_BODY_ATTR);
+          if (pinDivider !== null) pinDivider.removeAttribute("data-wsr-zone");
+          removeDropFeedback();
+          schedule();
+        }
+
+        function onWorkspaceDragOver(event) {
+          if (disposed || dragState === null) return;
+          if (event !== undefined && !pointerInsideSidebar(event.clientX, event.clientY)) {
+            removeDropFeedback();
+            if (pinDivider !== null) pinDivider.removeAttribute("data-wsr-zone");
+            return;
+          }
+          if (event !== undefined && typeof event.preventDefault === "function") event.preventDefault();
+          if (event !== undefined && event.dataTransfer !== undefined && event.dataTransfer !== null) {
+            try { event.dataTransfer.dropEffect = "move"; } catch (error) { /* best effort */ }
+          }
+          var plan = planWorkspaceDrop(event === undefined ? null : event.clientY);
+          paintDropFeedback(plan, event === undefined ? 0 : event.clientX, event === undefined ? 0 : event.clientY);
+        }
+
+        function onWorkspaceDrop(event) {
+          if (disposed || dragState === null) return;
+          if (event !== undefined && typeof event.preventDefault === "function") event.preventDefault();
+          var plan = event !== undefined && pointerInsideSidebar(event.clientX, event.clientY)
+            ? planWorkspaceDrop(event.clientY)
+            : null;
+          commitWorkspaceDrop(plan);
+          endWorkspaceDrag();
+        }
+
+        function onWorkspaceDragEnd() {
+          if (dragState === null) return;
+          endWorkspaceDrag();
+        }
+
+        /** Only the sidebar list is a drop target; releasing over the chat is a cancel. */
+        function pointerInsideSidebar(clientX, clientY) {
+          var rect = rectOf(lastContainer);
+          if (rect === null) return true;
+          if (typeof clientX === "number" && isFinite(clientX) && (clientX < rect.left - 24 || clientX > rect.right + 24)) return false;
+          if (typeof clientY === "number" && isFinite(clientY) && (clientY < rect.top - 24 || clientY > rect.bottom + 48)) return false;
+          return true;
+        }
+
+        /**
+         * Where a drop at `clientY` would put the dragged workspace.
+         *
+         * The pinned zone ends at the divider. Inside it the index counts the
+         * pinned groups whose midpoint is above the pointer, with the dragged
+         * group left out, so the returned index is directly an insertion index in
+         * the post-removal pin list.
+         */
+        function planWorkspaceDrop(clientY) {
+          if (dragState === null || lastGroups.length === 0 || typeof clientY !== "number" || !isFinite(clientY)) return null;
+          var pinnedCount = lastPinned.length;
+          var pinnedOthers = 0;
+          for (var p = 0; p < lastPinned.length; p += 1) if (lastPinned[p] !== dragState.id) pinnedOthers += 1;
+          var others = [];
+          for (var i = 0; i < lastGroups.length; i += 1) {
+            if (lastGroups[i].id !== dragState.id) others.push(lastGroups[i]);
+          }
+          var dividerRect = rectOf(pinDivider !== null && pinDivider.getAttribute("data-wsr-empty") !== "true" ? pinDivider : null);
+          var inPinned = false;
+          if (pinnedCount === 0) {
+            var firstRect = lastGroups.length > 0 ? rectOf(lastGroups[0].section) : null;
+            var stripBottom = dividerRect !== null && dividerRect.height > 0 ? dividerRect.bottom : null;
+            /* Without any pin yet the strip is thin, so let the top half of the
+               first group act as the target too: dragging a workspace to the top
+               of the list is the natural gesture. */
+            var firstMiddle = firstRect === null ? null : firstRect.top + firstRect.height / 2;
+            var boundary = stripBottom;
+            if (firstMiddle !== null && (boundary === null || firstMiddle > boundary)) boundary = firstMiddle;
+            inPinned = boundary !== null && clientY < boundary;
+          } else if (dividerRect !== null) {
+            inPinned = clientY < dividerRect.top + dividerRect.height / 2;
+          } else {
+            var firstUnpinned = lastGroups[pinnedCount] === undefined ? null : rectOf(lastGroups[pinnedCount].section);
+            inPinned = firstUnpinned !== null && clientY < firstUnpinned.top;
+          }
+          if (!inPinned) return { zone: "unpinned", index: pinnedCount, pinnedCount: pinnedCount, pinnedOthers: pinnedOthers };
+          var index = 0;
+          for (var k = 0; k < pinnedOthers; k += 1) {
+            var rect = rectOf(others[k].section);
+            if (rect !== null && clientY >= rect.top + rect.height / 2) index += 1;
+          }
+          return {
+            zone: "pinned",
+            index: Math.min(index, pinnedOthers),
+            pinnedCount: pinnedCount,
+            pinnedOthers: pinnedOthers,
+          };
+        }
+
+        /** Apply a drop plan to the persisted pin list. */
+        function commitWorkspaceDrop(plan) {
+          if (plan === null || plan === undefined || dragState === null) return;
+          var actions = data.actions;
+          if (actions === null || actions === undefined || typeof actions.setPinnedWorkspaces !== "function") return;
+          var id = dragState.id;
+          if (id === "") return;
+          var current = pinnedWorkspaceIds(pinSnapshot(), data.workspaces);
+          if (plan.zone === "pinned") {
+            var rest = [];
+            for (var i = 0; i < current.length; i += 1) if (current[i] !== id) rest.push(current[i]);
+            var at = Math.max(0, Math.min(plan.index, rest.length));
+            rest.splice(at, 0, id);
+            actions.setPinnedWorkspaces(rest);
+          } else if (current.indexOf(id) !== -1) {
+            var without = [];
+            for (var j = 0; j < current.length; j += 1) if (current[j] !== id) without.push(current[j]);
+            actions.setPinnedWorkspaces(without);
+          }
+        }
+
+        function dropLineY(plan) {
+          if (plan === null || dragState === null) return null;
+          var others = [];
+          for (var i = 0; i < lastGroups.length; i += 1) if (lastGroups[i].id !== dragState.id) others.push(lastGroups[i]);
+          if (plan.zone === "unpinned") {
+            var dividerRect = rectOf(pinDivider !== null && pinDivider.getAttribute("data-wsr-empty") !== "true" ? pinDivider : null);
+            if (dividerRect !== null) return dividerRect.top;
+            if (others.length > 0) {
+              var firstU = rectOf(others[0].section);
+              return firstU === null ? null : firstU.top;
+            }
+            return null;
+          }
+          if (plan.index < plan.pinnedOthers) {
+            var before = rectOf(others[plan.index].section);
+            return before === null ? null : before.top;
+          }
+          if (plan.pinnedOthers > 0) {
+            var after = rectOf(others[plan.pinnedOthers - 1].section);
+            return after === null ? null : after.bottom;
+          }
+          var first = lastGroups.length > 0 ? rectOf(lastGroups[0].section) : null;
+          return first === null ? null : first.top;
+        }
+
+        function dropHintText(plan) {
+          var pinned = dragState !== null && lastPinned.indexOf(dragState.id) !== -1;
+          if (plan.zone === "pinned") return pinned ? t("pins.hintReorder") : t("pins.hintPin");
+          return pinned ? t("pins.hintUnpin") : t("pins.hintUnpinned");
+        }
+
+        /** Draw the insertion line and the pointer hint; never blocks the drag. */
+        function paintDropFeedback(plan, clientX, clientY) {
+          if (typeof document === "undefined" || dragState === null) return;
+          if (document.body === undefined || document.body === null) return;
+          if (plan === null || lastContainer === null) {
+            removeDropFeedback();
+            return;
+          }
+          var containerRect = rectOf(lastContainer);
+          var lineY = dropLineY(plan);
+          if (containerRect !== null && lineY !== null) {
+            if (dropLine === null) {
+              dropLine = document.createElement("div");
+              dropLine.className = "wsr-drop-line";
+              document.body.appendChild(dropLine);
+            }
+            dropLine.style.display = "block";
+            dropLine.style.top = String(Math.round(lineY)) + "px";
+            dropLine.style.left = String(Math.round(containerRect.left + 8)) + "px";
+            dropLine.style.width = String(Math.max(0, Math.round(containerRect.width - 16))) + "px";
+            dropLine.setAttribute("data-zone", plan.zone);
+          } else if (dropLine !== null) {
+            dropLine.style.display = "none";
+          }
+          if (pinDivider !== null) pinDivider.setAttribute("data-wsr-zone", plan.zone);
+          if (dropHint === null) {
+            dropHint = document.createElement("div");
+            dropHint.className = "wsr-drop-hint";
+            document.body.appendChild(dropHint);
+          }
+          var hint = dropHintText(plan);
+          if (dropHint.textContent !== hint) dropHint.textContent = hint;
+          var left = Number(clientX) + 14;
+          var top = Number(clientY) + 18;
+          var viewWidth = typeof window !== "undefined" && Number(window.innerWidth) > 0 ? Number(window.innerWidth) : 0;
+          var viewHeight = typeof window !== "undefined" && Number(window.innerHeight) > 0 ? Number(window.innerHeight) : 0;
+          if (viewWidth > 0 && left > viewWidth - 180) left = Math.max(4, viewWidth - 180);
+          if (viewHeight > 0 && top > viewHeight - 36) top = Math.max(4, viewHeight - 36);
+          dropHint.style.left = String(Math.round(left)) + "px";
+          dropHint.style.top = String(Math.round(top)) + "px";
+        }
+
+        /** Start a logical drag for tests (and for any future programmatic pinning). */
+        function beginWorkspaceDragFor(workspaceId) {
+          if (dragState !== null) return false;
+          var group = null;
+          for (var i = 0; i < lastGroups.length; i += 1) if (lastGroups[i].id === workspaceId) group = lastGroups[i];
+          if (group === null) return false;
+          dragState = { id: workspaceId, header: group.header, section: group.section };
+          var divider = ensurePinDivider(lastContainer);
+          if (divider !== null) {
+            divider.setAttribute("data-wsr-empty", "false");
+            var label = lastPinned.length === 0 ? t("pins.dropHere") : t("pins.head");
+            if (divider.textContent !== label) divider.textContent = label;
+          }
+          return true;
+        }
+
+        function apply() {
+          if (disposed) return;
+          var sessions = data.sessions;
+          var workspaces = data.workspaces;
+          var settings = settingsOf();
+          if (!ready(sessions) || !ready(workspaces)) {
+            decorateComposerStats();
+            return;
+          }
+
+          var entries = collect();
+          if (entries.length === 0) {
+            removePinDivider();
+            removePinButtons();
+            written.forEach(function (section) {
+              if (section.style !== undefined) section.style.order = "";
+              if (section.getAttribute(RANK_ATTR) !== null) section.removeAttribute(RANK_ATTR);
+            });
+            written.clear();
+            roots.forEach(function (root) { root.removeAttribute(ROOT_ATTR); });
+            roots.clear();
+            lastGroups = [];
+            lastPinned = [];
+            lastContainer = null;
+            decorateComposerStats();
+            return;
+          }
+
+          var pinned = pinnedWorkspaceIds(settings, workspaces);
+          var arrangement = orderGroups(entries, latestByWorkspace(sessions, workspaces), pinned);
+          lastGroups = arrangement.groups;
+          lastPinned = [];
+          for (var i = 0; i < arrangement.pinnedCount; i += 1) lastPinned.push(lastGroups[i].id);
+          lastContainer = arrangement.container;
+          foldRows(entries, settings, sessions, Date.now());
+          syncPinDivider(lastContainer, arrangement.pinnedCount, dragState !== null);
+          wireWorkspaceDrag(arrangement.groups);
+          syncWorkspacePinButtons(arrangement.groups, lastPinned);
+          decorateComposerStats();
+        }
+
+        function schedule() {
+          if (disposed || timer !== null) return;
+          timer = window.setTimeout(function () {
+            timer = null;
+            try {
+              apply();
+            } catch (error) {
+              console.warn("[dsh-ws-recency] pass failed:", error);
+            }
+          }, 0);
+        }
+
+        /** `shell.overlay` occupant; it renders no chrome of its own. */
+        function Sorter(props) {
+          if (typeof props.useSessions === "function") {
+            data.sessions = props.useSessions(function (state) { return state; });
+          }
+          if (typeof props.useWorkspaces === "function") {
+            data.workspaces = props.useWorkspaces(function (state) { return state; });
+          }
+          if (typeof props.useStore === "function") {
+            data.settings = props.useStore(function (state) { return state; });
+          }
+          if (props.actions !== undefined && props.actions !== null) data.actions = props.actions;
+          if (typeof props.t === "function") data.t = props.t;
+          react.useEffect(function () { schedule(); });
+          return null;
+        }
+
+        /**
+         * Session "..." menu row: move the session into the trash folder.
+         *
+         * DSH itself only archives; the host half of this plugin stops the work,
+         * detaches the bookkeeping and renames the log directory into
+         * `<home>/.trash/ws-recency/`. The browser half only asks for confirmation
+         * and posts the id.
+         */
+        function TrashMenuItem(props) {
+          var Item = ui.MenuItemButton;
+          if (typeof Item !== "function") return null;
+          var Icon = ui.IconTrashOutlineRegular;
+          return h(Item, {
+            icon: typeof Icon === "function" ? h(Icon, {}) : undefined,
+            onSelect: function () {
+              askConfirm(t("trash.confirm"), function () {
+                fetch("/ws-recency/session-trash?sessionId=" + encodeURIComponent(props.sessionId), {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ sessionId: props.sessionId }),
+                })
+                  .then(function (response) {
+                    return response.text().then(function (text) {
+                      var parsed = null;
+                      try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+                      return { status: response.status, text: text, json: parsed };
+                    });
+                  })
+                  .then(function (result) {
+                    if (result.json !== null && result.json.ok === true) return;
+                    var reason = (result.json !== null && result.json.error) || (result.text || "").trim().slice(0, 120) || "(empty response)";
+                    askNotice(t("trash.failed") + "HTTP " + result.status + " \u00b7 " + reason);
+                  })
+                  .catch(function (error) {
+                    askNotice(t("trash.failed") + (error && error.message ? error.message : error));
+                  });
+              });
+            },
+          }, t("menu.trash"));
+        }
+
+        /* ------------------------- token statistics ------------------------- */
+
+        var statsModal = null;
+        /** Which stats tab stays selected across openings. */
+        var statsTab = "distribution";
+
+        function formatTokens(value) {
+          var n = Number(value) || 0;
+          if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+          if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+          if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+          return String(Math.round(n));
+        }
+
+        function formatShare(share) {
+          if (typeof share !== "number" || !Number.isFinite(share)) return "-";
+          return (share * 100).toFixed(1) + "%";
+        }
+
+        function closeStatsPanel() {
+          /* A confirmation may sit on top of the panel it was opened from. */
+          closeConfirm(null);
+          if (statsModal !== null) {
+            if (typeof statsModal.remove === "function") statsModal.remove();
+            statsModal = null;
+          }
+          if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+            document.removeEventListener("keydown", onStatsKey);
+          }
+        }
+
+        function onStatsKey(event) {
+          if (event !== undefined && event.key === "Escape") closeStatsPanel();
+        }
+
+        function statsDiv(className, text) {
+          var node = document.createElement("div");
+          node.className = className;
+          if (text !== undefined) node.textContent = text;
+          return node;
+        }
+
+        /* --------------------------- in-app dialogs ------------------------- *
+         * `window.confirm` / `window.alert` are native dialogs. On Windows the
+         * renderer comes back from one without keyboard focus: clicking the
+         * composer does nothing, switching sessions does not help, and only
+         * leaving the app and coming back fixes it. These stay in the page and
+         * never take the window's focus away.
+         * ------------------------------------------------------------------- */
+
+        var confirmBackdrop = null;
+        var confirmPrevious = null;
+        var confirmKey = null;
+
+        /** Close the current dialog; `onConfirm` runs only for an accept. */
+        function closeConfirm(onConfirm) {
+          var backdrop = confirmBackdrop;
+          confirmBackdrop = null;
+          if (backdrop !== null && typeof backdrop.remove === "function") backdrop.remove();
+          if (typeof document !== "undefined" && confirmKey !== null && typeof document.removeEventListener === "function") {
+            document.removeEventListener("keydown", confirmKey);
+          }
+          confirmKey = null;
+          var previous = confirmPrevious;
+          confirmPrevious = null;
+          if (previous !== null && previous !== undefined && previous.isConnected !== false && typeof previous.focus === "function") {
+            try { previous.focus(); } catch (error) { /* the element may be gone */ }
+          }
+          if (typeof onConfirm === "function") onConfirm();
+        }
+
+        /**
+         * Ask before acting, in the page.
+         *
+         * @param question - message shown in the dialog.
+         * @param onConfirm - runs when the user accepts; omitted for a notice.
+         * @param notice - render a single acknowledge button.
+         */
+        function askConfirm(question, onConfirm, notice) {
+          if (typeof document === "undefined") return;
+          closeConfirm();
+          var isNotice = notice === true;
+          confirmPrevious = typeof document.activeElement !== "undefined" ? document.activeElement : null;
+
+          var backdrop = statsDiv("wsr-modal-backdrop");
+          backdrop.setAttribute("data-wsr-confirm", isNotice ? "notice" : "confirm");
+          var panel = statsDiv("wsr-confirm");
+          panel.setAttribute("role", "dialog");
+          panel.setAttribute("aria-modal", "true");
+          panel.setAttribute("tabindex", "-1");
+          panel.appendChild(statsDiv("wsr-confirm-text", question));
+
+          var actions = statsDiv("wsr-confirm-actions");
+          var cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.className = "wsr-qcancel";
+          cancel.textContent = t("confirm.cancel");
+          cancel.addEventListener("click", function (event) {
+            if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+            closeConfirm(null);
+          });
+          var accept = document.createElement("button");
+          accept.type = "button";
+          accept.className = "wsr-qsubmit";
+          accept.setAttribute("data-wsr-confirm-ok", "true");
+          accept.textContent = t("confirm.ok");
+          accept.addEventListener("click", function (event) {
+            if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+            closeConfirm(isNotice ? null : onConfirm);
+          });
+          if (!isNotice) actions.appendChild(cancel);
+          actions.appendChild(accept);
+          panel.appendChild(actions);
+
+          panel.addEventListener("click", function (event) {
+            if (event !== undefined && typeof event.stopPropagation === "function") event.stopPropagation();
+          });
+          backdrop.addEventListener("click", function (event) {
+            if (event === undefined || event.target === backdrop) closeConfirm(null);
+          });
+          backdrop.appendChild(panel);
+          document.body.appendChild(backdrop);
+          confirmBackdrop = backdrop;
+
+          confirmKey = function (event) {
+            if (event === undefined) return;
+            if (event.key === "Escape") {
+              if (typeof event.preventDefault === "function") event.preventDefault();
+              closeConfirm(null);
+              return;
+            }
+            if (event.key === "Enter" && !isNotice) {
+              if (typeof event.preventDefault === "function") event.preventDefault();
+              closeConfirm(onConfirm);
+            }
+            if (event.key === "Enter" && isNotice) {
+              if (typeof event.preventDefault === "function") event.preventDefault();
+              closeConfirm(null);
+            }
+          };
+          if (typeof document.addEventListener === "function") document.addEventListener("keydown", confirmKey);
+          try { accept.focus(); } catch (error) { /* focus is best effort */ }
+        }
+
+        /** A one-button notice, used when a request fails. */
+        function askNotice(message) {
+          askConfirm(message, null, true);
+        }
+
+        /** One table row: source, calls, argument tokens, result tokens, total, share. */
+        function statsRow(label, calls, args, results, total, share, dimArgs) {
+          var row = document.createElement("div");
+          row.className = "wsr-stats-row";
+          var name = statsDiv("wsr-td wsr-td-name", label);
+          row.appendChild(name);
+          row.appendChild(statsDiv("wsr-td", calls === null ? "-" : String(calls)));
+          /* In "arguments belong to the agent" mode the cell stays readable but
+             fades: those tokens are no longer part of this tool's total. */
+          row.appendChild(statsDiv(dimArgs === true ? "wsr-td wsr-td-dim" : "wsr-td", args === null ? "-" : formatTokens(args)));
+          row.appendChild(statsDiv("wsr-td", results === null ? "-" : formatTokens(results)));
+          row.appendChild(statsDiv("wsr-td wsr-td-strong", formatTokens(total)));
+          row.appendChild(statsDiv("wsr-td", formatShare(share)));
+          return row;
+        }
+
+        /**
+         * Where a tool's argument tokens are counted.
+         *
+         * A tool's arguments are what the model wrote (a shell command, a file
+         * body), so they arguably belong to the agent rather than to the tool. The
+         * default keeps the historical per-tool total; "agent" moves the argument
+         * tokens onto the agent's bar and leaves each tool its results.
+         */
+        function argModeOf() {
+          var fromRenderer = data.settings !== null && data.settings !== undefined ? data.settings.argMode : undefined;
+          if (fromRenderer === "agent" || fromRenderer === "tool") return fromRenderer;
+          try {
+            var store = prefsStore;
+            var snapshot = store !== null && store !== undefined && typeof store.getSnapshot === "function" ? store.getSnapshot() : null;
+            if (snapshot !== null && snapshot !== undefined && (snapshot.argMode === "agent" || snapshot.argMode === "tool")) return snapshot.argMode;
+          } catch (error) {
+            /* the store is not readable here */
+          }
+          return "tool";
+        }
+
+        /** A thin legend for the two-tone bar: arguments vs results. */
+        function chartLegend() {
+          var legend = statsDiv("wsr-chart-legend");
+          var pairs = [["stats.legend.args", "wsr-chart-swatch wsr-chart-swatch-dim"], ["stats.legend.results", "wsr-chart-swatch"]];
+          for (var i = 0; i < pairs.length; i += 1) {
+            var item = statsDiv("wsr-chart-legend-item");
+            item.appendChild(statsDiv(pairs[i][1]));
+            var text = statsDiv("wsr-chart-legend-text");
+            text.textContent = t(pairs[i][0]);
+            item.appendChild(text);
+            legend.appendChild(item);
+          }
+          return legend;
+        }
+
+        /**
+         * One bar. The coloured group is the source's own total against the largest
+         * source; inside a tool's group the faded segment is its argument tokens.
+         */
+        function chartBar(entry, largest) {
+          var line = statsDiv("wsr-chart-row");
+          line.appendChild(statsDiv("wsr-chart-label", entry.name));
+          var track = statsDiv("wsr-chart-track");
+          var group = statsDiv("wsr-chart-group");
+          var width = largest > 0 ? (entry.value / largest) * 100 : 0;
+          group.style.width = width.toFixed(2) + "%";
+          /* No background on the group: the two segments paint themselves, and a
+             same-hue group behind a translucent argument segment would hide the
+             split entirely. */
+          var argsPart = entry.split === true && entry.value > 0 ? (entry.args / entry.value) * 100 : 0;
+          if (argsPart > 0) {
+            var argsSeg = statsDiv("wsr-chart-fill wsr-bar-args");
+            argsSeg.style.width = argsPart.toFixed(2) + "%";
+            argsSeg.style.background = sourceColorDim(entry.hue, entry.rank);
+            group.appendChild(argsSeg);
+          }
+          var resultsSeg = statsDiv("wsr-chart-fill wsr-bar-results");
+          resultsSeg.style.width = (100 - argsPart).toFixed(2) + "%";
+          resultsSeg.style.background = sourceColor(entry.hue, entry.rank);
+          group.appendChild(resultsSeg);
+          track.appendChild(group);
+          line.appendChild(track);
+          line.appendChild(statsDiv("wsr-chart-value", formatTokens(entry.value)));
+          line.appendChild(statsDiv("wsr-chart-share", formatShare(entry.share)));
+          return line;
+        }
+
+        /**
+         * Colour identity for a source.
+         *
+         * The tool set is open - every plugin and MCP server adds tools - so it
+         * cannot be enumerated. A curated hue for the common tools plus a stable
+         * hash for everything else keeps one name on one hue across sessions, and
+         * the rank only modulates how vivid it is: the heaviest source reads
+         * strongest, the tail fades back.
+         */
+        var TOOL_HUES = {
+          pwsh: 32, powershell: 32, shell: 32, bash: 32, command: 32,
+          read: 152, write: 217, edit: 268, grep: 190, glob: 88,
+          todo_write: 292, todo_read: 292, todo: 292,
+          job_output: 330, job_list: 330, job_kill: 330,
+          web_fetch: 205, web_search: 205, platform_search: 205, multi_search: 205, advanced_search: 205,
+          subagent: 250, subagent_fork: 250, workflow: 250, spawn_teammate: 250, send_message: 250, wait_agent: 250,
+          ask_user_question: 12, present: 12,
+          skill: 60, create_goal: 60, update_goal: 60,
+        };
+        var TOOL_PREFIX_HUES = [
+          ["mcp__", 235],
+          ["browser_", 0],
+          ["univer_", 175],
+          ["weknora_", 300],
+          ["job_", 330],
+          ["team_", 250],
+        ];
+
+        function hashHue(name) {
+          var hash = 0;
+          for (var i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 360;
+          return hash;
+        }
+
+        function sourceHue(name) {
+          if (typeof name !== "string" || name === "") return 210;
+          var key = name.toLowerCase();
+          if (TOOL_HUES[key] !== undefined) return TOOL_HUES[key];
+          for (var i = 0; i < TOOL_PREFIX_HUES.length; i += 1) {
+            if (key.indexOf(TOOL_PREFIX_HUES[i][0]) === 0) return TOOL_PREFIX_HUES[i][1];
+          }
+          return hashHue(key);
+        }
+
+        /** Rank 0 is the heaviest source; later ranks fade towards grey. */
+        function sourceColor(hue, rank) {
+          var saturation = Math.max(40, 88 - rank * 8);
+          var lightness = Math.min(64, 50 + rank * 2);
+          return "hsl(" + hue + ", " + saturation + "%, " + lightness + "%)";
+        }
+
+        /**
+         * The same hue, lifted and softened: the argument segment of a tool's bar.
+         *
+         * It has to be a real colour rather than an opacity: the segment sits on a
+         * solid bar of the same hue, so a translucent copy of it would composite
+         * back to exactly the same colour and the split would be invisible.
+         */
+        function sourceColorDim(hue, rank) {
+          var saturation = Math.max(28, 62 - rank * 6);
+          var lightness = Math.min(76, 66 + rank * 2);
+          return "hsl(" + hue + ", " + saturation + "%, " + lightness + "%)";
+        }
+
+        var AMPLIFIED_KIND = {
+          results: ["stats.amplified.results", "#4f8ef7"],
+          args: ["stats.amplified.args", "#8fa3c8"],
+          agent: ["stats.amplified.agent", "#7a6cff"],
+          user: ["stats.amplified.user", "#6fbf73"],
+          system: ["stats.amplified.system", "#c9a227"],
+        };
+
+        /**
+         * The bill's shape, then its amplified ranking.
+         *
+         * A step's token count is just "context at that moment", which is nearly
+         * the same on every step; the number that explains the bill is a content
+         * block's tokens times the number of later steps that re-read it. The
+         * host half computes that attribution; this only draws it.
+         */
+        function buildAmplified(stats) {
+          var amplified = stats.amplified;
+          if (amplified === null || amplified === undefined || !Array.isArray(amplified.series)) return null;
+          var bill = Number(amplified.bill) || 0;
+          var section = statsDiv("wsr-amplified");
+
+          var head = statsDiv("wsr-amplified-head");
+          head.appendChild(statsDiv("wsr-amplified-title", t("stats.amplified.title")));
+          head.appendChild(statsDiv("wsr-amplified-summary", t("stats.amplified.summary", {
+            bill: formatTokens(bill),
+            share: formatShare(Number(amplified.share) || 0),
+            attributed: formatTokens(amplified.attributed || 0),
+          })));
+          section.appendChild(head);
+
+          var series = amplified.series;
+          var largest = 1;
+          for (var i = 0; i < series.length; i += 1) {
+            if (Number(series[i].context) > largest) largest = Number(series[i].context);
+          }
+          var chart = statsDiv("wsr-context-chart");
+          for (var j = 0; j < series.length; j += 1) {
+            var bar = statsDiv("wsr-context-bar");
+            bar.style.height = Math.max(2, Math.round((Number(series[j].context) / largest) * 100)) + "%";
+            bar.setAttribute("title", t("stats.amplified.point", { step: String(series[j].step), context: formatTokens(series[j].context) }));
+            chart.appendChild(bar);
+          }
+          section.appendChild(chart);
+          section.appendChild(statsDiv("wsr-context-caption", t("stats.amplified.contextCaption")));
+
+          var kinds = amplified.byKind || [];
+          if (kinds.length > 0) {
+            var legend = statsDiv("wsr-kind-legend");
+            for (var k = 0; k < kinds.length; k += 1) {
+              var kind = kinds[k];
+              var known = AMPLIFIED_KIND[kind.kind];
+              var item = statsDiv("wsr-kind");
+              var dot = statsDiv("wsr-kind-dot");
+              dot.style.background = known === undefined ? "#9aa0a6" : known[1];
+              item.appendChild(dot);
+              item.appendChild(statsDiv("", t(known === undefined ? kind.kind : known[0]) + " " + formatShare(kind.share || 0)));
+              legend.appendChild(item);
+            }
+            section.appendChild(legend);
+          }
+
+          var list = statsDiv("wsr-amplified-list");
+          var blocks = amplified.blocks || [];
+          if (blocks.length === 0) list.appendChild(statsDiv("wsr-amplified-empty", t("stats.amplified.empty")));
+          for (var b = 0; b < blocks.length; b += 1) {
+            var block = blocks[b];
+            var known = AMPLIFIED_KIND[block.kind];
+            var row = statsDiv("wsr-amplified-row");
+            var main = statsDiv("wsr-amplified-main");
+            main.appendChild(statsDiv("wsr-amplified-name", block.kind === "tool" ? String(block.name) : t(known === undefined ? block.kind : known[0])));
+            if (typeof block.detail === "string" && block.detail !== "") main.appendChild(statsDiv("wsr-amplified-detail", block.detail));
+            main.appendChild(statsDiv("wsr-amplified-meta", t("stats.amplified.meta", {
+              entry: String(block.entry),
+              tokens: formatTokens(block.tokens),
+              remaining: String(block.remaining),
+            })));
+            row.appendChild(main);
+            row.appendChild(statsDiv("wsr-amplified-value", formatTokens(block.amplified)));
+            row.appendChild(statsDiv("wsr-amplified-share", formatShare(block.share || 0)));
+            if (Number(block.remaining) > 0 && Number(block.saving) > 0) {
+              row.appendChild(statsDiv("wsr-amplified-if", t("stats.amplified.whatIf", {
+                save: formatTokens(block.saving),
+                share: formatShare(Number(block.saving) / (bill > 0 ? bill : 1)),
+              })));
+            }
+            list.appendChild(row);
+          }
+          section.appendChild(list);
+          section.appendChild(statsDiv("wsr-stats-note", t("stats.amplified.note")));
+          return section;
+        }
+
+        function renderStats(body, stats) {
+          body.textContent = "";
+          while (body.firstChild !== null) body.removeChild(body.firstChild);
+          var totals = stats.totals || {};
+          var estimate = stats.estimate || {};
+          var agent = estimate.agent || {};
+
+          var grid = document.createElement("div");
+          grid.className = "wsr-stats-grid";
+          var cards = [
+            [t("stats.steps"), formatTokens(stats.steps)],
+            [t("stats.input"), formatTokens(totals.inputTokens)],
+            [t("stats.cache"), formatTokens(totals.cacheReadTokens)],
+            [t("stats.output"), formatTokens(totals.outputTokens)],
+            [t("stats.total"), formatTokens(totals.totalTokens)],
+          ];
+          for (var i = 0; i < cards.length; i += 1) {
+            var card = statsDiv("wsr-stats-card");
+            card.appendChild(statsDiv("wsr-stats-value", cards[i][1]));
+            card.appendChild(statsDiv("wsr-stats-label", cards[i][0]));
+            grid.appendChild(card);
+          }
+          body.appendChild(grid);
+
+          /* Three views instead of one long page: distribution, amplification,
+             details. The summary cards stay above the tabs for every view. */
+          var amplifiedSection = buildAmplified(stats);
+
+          var tools = estimate.tools || [];
+          var mode = argModeOf();
+          var movedArgs = 0;
+          if (mode === "agent") {
+            for (var a = 0; a < tools.length; a += 1) movedArgs += tools[a].args || 0;
+          }
+          var grand = estimate.grandTotal || 0;
+          if (grand <= 0 && mode === "agent") {
+            /* An older host half may not send grandTotal: rebuild the denominator. */
+            grand = (agent.total || 0) + movedArgs;
+            for (var g = 0; g < tools.length; g += 1) grand += tools[g].total || 0;
+          }
+          var shareOf = function (value) {
+            if (grand > 0) return value / grand;
+            return 0;
+          };
+
+          var agentValue = (agent.total || 0) + movedArgs;
+          var entries = [{
+            name: t("stats.agent"),
+            value: agentValue,
+            share: grand > 0 ? shareOf(agentValue) : (agent.share || 0),
+            hue: 217,
+            rank: 0,
+            args: 0,
+            split: false,
+          }];
+          for (var j = 0; j < tools.length; j += 1) {
+            var tool = tools[j];
+            var args = tool.args || 0;
+            var results = tool.results || 0;
+            var value = mode === "agent" ? results : (tool.total || args + results);
+            entries.push({
+              name: tool.name,
+              value: value,
+              share: shareOf(value),
+              hue: sourceHue(tool.name),
+              rank: j + 1,
+              args: args,
+              split: mode !== "agent" && args > 0 && results > 0,
+            });
+          }
+
+          /* The picture first: one bar per source, split into args and results. */
+          var chart = statsDiv("wsr-chart");
+          var chartHead = statsDiv("wsr-chart-head");
+          chartHead.appendChild(statsDiv("wsr-chart-title", t("stats.chart")));
+          if (mode !== "agent") chartHead.appendChild(chartLegend());
+          chart.appendChild(chartHead);
+          var largest = 1;
+          for (var m = 0; m < entries.length; m += 1) if (entries[m].value > largest) largest = entries[m].value;
+          for (var k = 0; k < entries.length; k += 1) chart.appendChild(chartBar(entries[k], largest));
+          var distributionPanel = statsDiv("wsr-stats-panel");
+          distributionPanel.appendChild(chart);
+          distributionPanel.appendChild(statsDiv("wsr-stats-note", t("stats.note")));
+
+          /* The table is now its own tab instead of a folded section. */
+          var detailsPanel = statsDiv("wsr-stats-panel wsr-stats-details");
+
+          var table = statsDiv("wsr-stats-table");
+          var head = document.createElement("div");
+          head.className = "wsr-stats-row wsr-stats-head";
+          var columns = ["stats.col.source", "stats.col.calls", "stats.col.args", "stats.col.results", "stats.col.total", "stats.col.share"];
+          for (var n = 0; n < columns.length; n += 1) head.appendChild(statsDiv("wsr-td", t(columns[n])));
+          table.appendChild(head);
+          table.appendChild(statsRow(t("stats.agent"), stats.steps, null, null, agentValue, shareOf(agentValue)));
+          for (var q = 0; q < tools.length; q += 1) {
+            var toolRow = tools[q];
+            var toolArgs = toolRow.args || 0;
+            var toolResults = toolRow.results || 0;
+            var toolValue = mode === "agent" ? toolResults : (toolRow.total || toolArgs + toolResults);
+            table.appendChild(statsRow(toolRow.name, toolRow.calls, toolArgs, toolResults, toolValue, shareOf(toolValue), mode === "agent"));
+          }
+          detailsPanel.appendChild(table);
+          detailsPanel.appendChild(statsDiv("wsr-stats-detail", t("stats.agentDetail", {
+            reasoning: formatTokens(agent.reasoning),
+            text: formatTokens(agent.text),
+            user: formatTokens(agent.user),
+            system: formatTokens(agent.system),
+          })));
+          if (mode === "agent") detailsPanel.appendChild(statsDiv("wsr-stats-note", t("stats.argModeNote")));
+
+          var tabs = statsDiv("wsr-stats-tabs");
+          tabs.setAttribute("role", "tablist");
+          var panels = statsDiv("wsr-stats-panels");
+          var defs = [["distribution", "stats.tab.distribution", distributionPanel]];
+          if (amplifiedSection !== null) {
+            var amplifiedPanel = statsDiv("wsr-stats-panel");
+            amplifiedPanel.appendChild(amplifiedSection);
+            defs.push(["amplified", "stats.tab.amplified", amplifiedPanel]);
+          }
+          defs.push(["details", "stats.tab.details", detailsPanel]);
+          var tabButtons = {};
+          var selectTab = function (id) {
+            statsTab = id;
+            for (var index = 0; index < defs.length; index += 1) {
+              var def = defs[index];
+              var active = def[0] === id;
+              if (tabButtons[def[0]] !== undefined) {
+                tabButtons[def[0]].className = "wsr-stats-tab" + (active ? " wsr-stats-tab-active" : "");
+                tabButtons[def[0]].setAttribute("aria-selected", active ? "true" : "false");
+              }
+              def[2].style.display = active ? "" : "none";
+            }
+          };
+          for (var d = 0; d < defs.length; d += 1) {
+            (function (def) {
+              var button = document.createElement("button");
+              button.type = "button";
+              button.className = "wsr-stats-tab";
+              button.setAttribute("role", "tab");
+              button.setAttribute("data-wsr-stats-tab", def[0]);
+              button.textContent = t(def[1]);
+              button.addEventListener("click", function () { selectTab(def[0]); });
+              tabButtons[def[0]] = button;
+              tabs.appendChild(button);
+              panels.appendChild(def[2]);
+            })(defs[d]);
+          }
+          var initialTab = statsTab;
+          if (initialTab === "amplified" && amplifiedSection === null) initialTab = "distribution";
+          selectTab(initialTab);
+          body.appendChild(tabs);
+          body.appendChild(panels);
+        }
+
+        function openStatsPanel(sessionId) {
+          if (typeof document === "undefined") return;
+          closeStatsPanel();
+          var backdrop = statsDiv("wsr-modal-backdrop");
+          var panel = statsDiv("wsr-modal");
+          backdrop.appendChild(panel);
+          var head = statsDiv("wsr-modal-head");
+          head.appendChild(statsDiv("wsr-modal-title", t("stats.title")));
+          var close = document.createElement("button");
+          close.type = "button";
+          close.className = "wsr-modal-close";
+          close.textContent = "\u00d7";
+          close.addEventListener("click", closeStatsPanel);
+          head.appendChild(close);
+          panel.appendChild(head);
+          var body = statsDiv("wsr-modal-body");
+          body.textContent = t("stats.loading");
+          panel.appendChild(body);
+          backdrop.addEventListener("click", function (event) {
+            if (event !== undefined && event.target === backdrop) closeStatsPanel();
+          });
+          document.body.appendChild(backdrop);
+          statsModal = backdrop;
+          document.addEventListener("keydown", onStatsKey);
+
+          var controller = typeof AbortController === "function" ? new AbortController() : null;
+          var timer = controller === null ? null : window.setTimeout(function () { controller.abort(); }, 180000);
+          var request = fetch("/ws-recency/session-stats?sessionId=" + encodeURIComponent(sessionId), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId: sessionId }),
+            signal: controller === null ? undefined : controller.signal,
+          }).then(function (response) {
+            if (timer !== null) window.clearTimeout(timer);
+            return response.text().then(function (text) {
+              var parsed = null;
+              try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+              return { status: response.status, text: text, json: parsed };
+            });
+          }, function (error) {
+            if (timer !== null) window.clearTimeout(timer);
+            throw error;
+          });
+
+          request.then(function (result) {
+            if (result.status === 200 && result.json !== null && result.json.ok === true) {
+              renderStats(body, result.json.stats);
+              return;
+            }
+            var reason = (result.json !== null && result.json.error)
+              || (result.text || "").trim().slice(0, 120)
+              || "(empty response)";
+            body.textContent = t("stats.failed") + "HTTP " + result.status + " \u00b7 " + reason;
+            /* A 405 here is the SPA fallback answering an unknown POST: the host
+               half never mounted. Ask the health route which part is missing. */
+            return fetch("/ws-recency/health").then(function (response) {
+              return response.text();
+            }).then(function (text) {
+              var health = null;
+              try { health = JSON.parse(text); } catch (error) { health = null; }
+              body.textContent += health !== null && health.ok === true
+                ? t("stats.diagnose.unmounted")
+                : t("stats.diagnose.noHost");
+            }).catch(function () {
+              body.textContent += t("stats.diagnose.noHost");
+            });
+          }).catch(function (error) {
+            body.textContent = t("stats.failed") + (error && error.message ? error.message : error);
+          });
+        }
+
+        /** Which workspace currently owns a session, per the client snapshot. */
+        function workspaceOfSession(sessionId) {
+          var items = (data.workspaces && data.workspaces.items) || [];
+          for (var i = 0; i < items.length; i += 1) {
+            if ((items[i].sessionIds || []).indexOf(sessionId) !== -1) return items[i];
+          }
+          return null;
+        }
+
+        /** Modal that lists the workspaces and moves the session into the chosen one. */
+        function openMovePanel(sessionId) {
+          if (typeof document === "undefined") return;
+          closeStatsPanel();
+          var backdrop = statsDiv("wsr-modal-backdrop");
+          var panel = statsDiv("wsr-modal");
+          backdrop.appendChild(panel);
+          var head = statsDiv("wsr-modal-head");
+          head.appendChild(statsDiv("wsr-modal-title", t("move.title")));
+          var close = document.createElement("button");
+          close.type = "button";
+          close.className = "wsr-modal-close";
+          close.textContent = "\u00d7";
+          close.addEventListener("click", closeStatsPanel);
+          head.appendChild(close);
+          panel.appendChild(head);
+          var body = statsDiv("wsr-modal-body");
+          panel.appendChild(body);
+          body.appendChild(statsDiv("wsr-stats-note", t("move.note")));
+          body.appendChild(statsDiv("wsr-move-warning", t("move.warning")));
+
+          var current = workspaceOfSession(sessionId);
+          var items = (data.workspaces && data.workspaces.items) || [];
+          var list = statsDiv("wsr-move-list");
+          for (var i = 0; i < items.length; i += 1) {
+            (function (item) {
+              var isCurrent = current !== null && current.workspaceId === item.workspaceId;
+              var row = document.createElement("button");
+              row.type = "button";
+              row.className = "wsr-move-row";
+              row.setAttribute("data-wsr-move-target", String(item.workspaceId));
+              if (isCurrent) row.setAttribute("disabled", "true");
+              var text = statsDiv("wsr-move-text");
+              text.appendChild(statsDiv("wsr-move-title", (item.title && String(item.title)) || baseName(item.path)));
+              text.appendChild(statsDiv("wsr-move-path", String(item.path || "")));
+              row.appendChild(text);
+              row.appendChild(statsDiv("wsr-move-badge", isCurrent ? t("move.current") : ""));
+              if (!isCurrent) {
+                row.addEventListener("click", function () {
+                  var label = (item.title && String(item.title)) || baseName(item.path);
+                  askConfirm(t("move.confirm", { workspace: label }), function () {
+                    body.textContent = t("move.working");
+                    fetch("/ws-recency/session-move?sessionId=" + encodeURIComponent(sessionId), {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ sessionId: sessionId, workspaceId: item.workspaceId }),
+                    })
+                      .then(function (response) {
+                        return response.text().then(function (text) {
+                          var parsed = null;
+                          try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+                          return { status: response.status, text: text, json: parsed };
+                        });
+                      })
+                      .then(function (result) {
+                        if (result.json !== null && result.json.ok === true) {
+                          if (result.json.repaired === true) {
+                            body.textContent = t("move.repaired", { workspace: label });
+                            return;
+                          }
+                          body.textContent = t("move.done", { workspace: label });
+                          if (result.json.live === true) body.textContent += t("move.doneLive");
+                          return;
+                        }
+                        var reason = (result.json !== null && result.json.error) || (result.text || "").trim().slice(0, 160) || "(empty response)";
+                        body.textContent = t("move.failed") + "HTTP " + result.status + " \u00b7 " + reason;
+                      })
+                      .catch(function (error) {
+                        body.textContent = t("move.failed") + (error && error.message ? error.message : error);
+                      });
+                  });
+                });
+              }
+              list.appendChild(row);
+            })(items[i]);
+          }
+          body.appendChild(list);
+          backdrop.addEventListener("click", function (event) {
+            if (event !== undefined && event.target === backdrop) closeStatsPanel();
+          });
+          document.body.appendChild(backdrop);
+          statsModal = backdrop;
+          document.addEventListener("keydown", onStatsKey);
+        }
+
+        /** Session "..." menu row: move the conversation to another workspace. */
+        function MoveMenuItem(props) {
+          var Item = ui.MenuItemButton;
+          if (typeof Item !== "function") return null;
+          var Icon = ui.IconFolderOpenOutlineRegular;
+          return h(Item, {
+            icon: typeof Icon === "function" ? h(Icon, {}) : undefined,
+            onSelect: function () { openMovePanel(props.sessionId); },
+          }, t("menu.move"));
+        }
+
+        /* ------------------------------ handoff ------------------------------ */
+
+        /* A plain observable, not a slot store: the turn card and the turn action are
+           different slot instances, and a store handle would hand each its own copy. */
+        var handoffState = { sessionId: "", phase: "idle", block: "", needsEnter: false };
+        var handoffListeners = [];
+
+        function currentHandoffState() {
+          return handoffState;
+        }
+
+        function setHandoffState(patch) {
+          handoffState = Object.assign({}, handoffState, patch);
+          var listeners = handoffListeners.slice();
+          for (var i = 0; i < listeners.length; i += 1) {
+            try { listeners[i](handoffState); } catch (error) { /* a dead component */ }
+          }
+        }
+
+        function subscribeHandoff(listener) {
+          handoffListeners.push(listener);
+          return function () {
+            var at = handoffListeners.indexOf(listener);
+            if (at !== -1) handoffListeners.splice(at, 1);
+          };
+        }
+
+        var handoffTimer = null;
+        var handoffBaseline = 0;
+        var handoffTries = 0;
+        var handoffSession = null;
+        /** Wall clock of the instruction/rewrite: older replies are never the answer. */
+        var handoffStartedAt = 0;
+
+        /** Retention-source tag the Host books this plugin's borrows under. */
+        var HANDOFF_SOURCE = "dsh-ws-recency";
+
+        /** The instruction the user sends to the current Session. */
+        function handoffInstruction() {
+          return t("handoff.instruction");
+        }
+
+        /** The Host's session service, when this Client provides it. */
+        function sessionsService() {
+          var ctx = data.ctx;
+          if (ctx === null || ctx === undefined || typeof ctx.get !== "function") return null;
+          var sessions;
+          try { sessions = ctx.get("sessions"); } catch (error) { sessions = undefined; }
+          return sessions === undefined ? null : sessions;
+        }
+
+        /**
+         * Send one prompt through the Host's own Session controller.
+         *
+         * The composer path further down is a synthetic key event: it depends on
+         * the editor being mounted, focused, and on the insert and the key landing
+         * in different frames. The Session controller owns a real prompt call, so
+         * a plugin can retain the session, wait until it is open, and hand the text
+         * over - no DOM, no key events, and it works for a session that is not the
+         * one on screen (the "..." menu starts a handoff that way).
+         *
+         * @param sessionId - target Session.
+         * @param text - prompt text, sent as one text block.
+         * @param onUnsent - called when the prompt could not be dispatched.
+         * @returns true when a request was dispatched (its promise may still fail).
+         */
+        function promptSession(sessionId, text, onUnsent) {
+          var sessions = sessionsService();
+          if (sessions !== null && typeof sessions.using === "function") {
+            try {
+              sessions.using(sessionId, { source: HANDOFF_SOURCE }, function (reference) {
+                var binding = reference === null || reference === undefined ? undefined : reference.binding;
+                var session = binding === null || binding === undefined ? undefined : binding.session;
+                if (session === undefined || session === null || typeof session.prompt !== "function") throw new Error("session unavailable");
+                return Promise.resolve(session.prompt([{ type: "text", text: text }], "queue")).then(function (result) {
+                  if (result !== null && result !== undefined && result.ok === false) throw new Error("the session refused the prompt");
+                  return result;
+                });
+              }).catch(function () {
+                if (typeof onUnsent === "function") onUnsent();
+              });
+              return true;
+            } catch (error) {
+              /* fall through to the caller's own path */
+            }
+          }
+          if (typeof onUnsent === "function") onUnsent();
+          return false;
+        }
+
+        function handoffPost(payload) {
+          return fetch("/ws-recency/handoff", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(function (response) {
+            return response.json().catch(function () { return null; });
+          });
+        }
+
+        /** Enter is the only submit path the composer exposes to a plugin. */
+        function pressEnter(editor) {
+          try {
+            var event = new window.KeyboardEvent("keydown", {
+              key: "Enter",
+              code: "Enter",
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+              cancelable: true,
+            });
+            editor.dispatchEvent(event);
+            return true;
+          } catch (error) {
+            return false;
+          }
+        }
+
+        /** The composer of the open conversation, if it is on screen. */
+        function composerEditor() {
+          if (typeof document === "undefined") return null;
+          var seat = typeof document.querySelector === "function" ? document.querySelector("[data-composer-seat]") : null;
+          if (seat === null || seat === undefined) return null;
+          var editor = null;
+          try { editor = seat.querySelector('[contenteditable="true"]'); } catch (error) { editor = null; }
+          if (editor === null || editor === undefined) {
+            try { editor = seat.querySelector("textarea"); } catch (error) { editor = null; }
+          }
+          return editor === undefined ? null : editor;
+        }
+
+        function editorText(editor) {
+          if (editor === null || editor === undefined) return "";
+          if (editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") return typeof editor.value === "string" ? editor.value : "";
+          return typeof editor.textContent === "string" ? editor.textContent : "";
+        }
+
+        /**
+         * Send the handoff in the Session that was just opened.
+         *
+         * The draft initialises asynchronously: poll until the composer actually holds
+         * the note, press Enter once, then stop. If it never shows up (slow render,
+         * another draft kept) the text simply stays there for a manual Enter.
+         */
+        function autoSendDraft(marker) {
+          if (typeof window === "undefined") return;
+          var tries = 0;
+          function step() {
+            tries += 1;
+            var editor = composerEditor();
+            if (editor !== null) {
+              var text = editorText(editor);
+              if (text.indexOf(marker) !== -1) {
+                try { if (typeof editor.focus === "function") editor.focus(); } catch (error) { /* focus is best effort */ }
+                pressEnter(editor);
+                return;
+              }
+            }
+            if (tries < 40) window.setTimeout(step, 350);
+          }
+          window.setTimeout(step, 400);
+        }
+
+        /** Put text into an editor without losing the framework's own input event. */
+        function writeIntoEditor(editor, text) {
+          try {
+            if (typeof editor.focus === "function") editor.focus();
+            if (editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") {
+              editor.value = text;
+              editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+              return true;
+            }
+            var selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+            if (selection !== null && typeof document.createRange === "function") {
+              var range = document.createRange();
+              range.selectNodeContents(editor);
+              range.collapse(false);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+            if (typeof document.execCommand === "function" && document.execCommand("insertText", false, text)) return true;
+            editor.textContent = text;
+            editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+            return true;
+          } catch (error) {
+            return false;
+          }
+        }
+
+        /**
+         * Press Enter until the text actually leaves the composer.
+         *
+         * The editor commits an inserted text and a synthetic Enter in different
+         * frames: pressing Enter in the same tick as the insert is swallowed, which
+         * is why the instruction used to sit in the box until the user pressed it.
+         * Wait a beat, then press again only while the text is still there.
+         */
+        function armEnter(editor, attempt) {
+          if (typeof window === "undefined") return;
+          window.setTimeout(function () {
+            if (composerEditor() !== editor) return;
+            if (editorText(editor).trim() === "") return;
+            pressEnter(editor);
+            if (attempt < 2) armEnter(editor, attempt + 1);
+          }, attempt === 0 ? 250 : 800);
+        }
+
+        /** Fallback: write into the open composer and press Enter until it leaves. */
+        function sendThroughComposer(sessionId, text) {
+          if (typeof document === "undefined") return false;
+          /* Never write into another conversation's composer: the open editor
+             belongs to the session on screen, not to the target id. */
+          if (currentConversationId() !== sessionId) return false;
+          var editor = composerEditor();
+          if (editor === null || editor === undefined) return false;
+          if (!writeIntoEditor(editor, text)) return false;
+          armEnter(editor, 0);
+          return true;
+        }
+
+        /**
+         * Send one prompt to one Session.
+         *
+         * Preferred: the Host's Session controller (see promptSession). Only when
+         * that seam is unavailable does it fall back to writing into the composer
+         * of the session on screen and pressing Enter; a target that is not on
+         * screen then just reports "press Enter" on the card instead of sending
+         * the instruction into the wrong conversation.
+         */
+        function sendToSession(sessionId, text) {
+          if (typeof text !== "string" || text === "") return false;
+          var fallback = function () {
+            if (sendThroughComposer(sessionId, text)) return;
+            setHandoffState({ sessionId: sessionId, phase: "running", block: "", needsEnter: true });
+          };
+          return promptSession(sessionId, text, fallback);
+        }
+
+        function stopHandoffPolling() {
+          if (handoffTimer !== null && typeof window.clearTimeout === "function") window.clearTimeout(handoffTimer);
+          handoffTimer = null;
+        }
+
+        function resetHandoff() {
+          stopHandoffPolling();
+          handoffSession = null;
+          handoffBaseline = 0;
+          handoffTries = 0;
+          setHandoffState({ sessionId: "", phase: "idle", block: "", needsEnter: false });
+        }
+
+        /**
+         * Every fenced block in a reply, in order: `{ label, body }`.
+         *
+         * A fence stops only on a line that is nothing but backticks. The handoff
+         * note names the fence it came in ("→ 抓到 ```handoff 块"), and matching the
+         * first three backticks used to close the block right there: the note was
+         * cut mid-sentence and that truncated text went into the new Session.
+         */
+        function fencedBlocks(text) {
+          var lines = String(text).split(/\r?\n/);
+          var opens = /^ {0,3}(`{3,})[ \t]*([A-Za-z0-9_+-]*)[ \t]*$/;
+          var closes = /^ {0,3}(`{3,})[ \t]*$/;
+          var blocks = [];
+          var at = -1;
+          var label = "";
+          for (var i = 0; i < lines.length; i += 1) {
+            if (at !== -1) {
+              if (closes.test(lines[i])) {
+                blocks.push({ label: label, body: lines.slice(at + 1, i).join("\n").trim() });
+                at = -1;
+                label = "";
+              }
+              continue;
+            }
+            var opened = opens.exec(lines[i]);
+            if (opened === null) continue;
+            at = i;
+            label = opened[2].toLowerCase();
+          }
+          return blocks;
+        }
+
+        /**
+         * Pull the handoff block out of an assistant reply.
+         *
+         * Both fence kinds are read: the prompt asks for `~~~handoff` (three tildes
+         * rarely appear in prose), `' + '```handoff` stays supported for older replies.
+         * A fence only counts when it owns its line and is closed by the same kind,
+         * so a note that mentions the marker in a sentence cannot cut itself short,
+         * and a reply that is still streaming is not captured half-written.
+         */
+        function handoffBlockOf(text) {
+          if (typeof text !== "string") return "";
+          var bodyOf = function (openedAt, openedLength, mark) {
+            var closer = new RegExp("^[ \\t]*" + mark + "[ \\t]*$", "m");
+            var rest = text.slice(openedAt + openedLength);
+            var closed = closer.exec(rest);
+            if (closed === null) return "";
+            return rest.slice(0, closed.index).replace(/^\r?\n/, "").trim();
+          };
+          var tagged = /^[ \t]*(```|~~~)[ \t]*handoff[ \t]*$/m.exec(text);
+          if (tagged !== null) return bodyOf(tagged.index, tagged[0].length, tagged[1]);
+          var fence = /^[ \t]*(```|~~~)[ \t]*[a-zA-Z0-9_-]*[ \t]*$/gm;
+          var opened;
+          while ((opened = fence.exec(text)) !== null) {
+            var candidate = bodyOf(opened.index, opened[0].length, opened[1]);
+            if (candidate !== "" && candidate.indexOf("#") !== -1) return candidate;
+            var next = text.indexOf("\n", opened.index + opened[0].length);
+            if (next === -1) return "";
+            fence.lastIndex = next + 1;
+          }
+          return "";
+        }
+
+        /**
+         * Whether a tail answer is a *new, finished* reply worth reading.
+         *
+         * Three guards, because the tail always reports the newest assistant text
+         * in the whole log:
+         *   - the session must have no open turn: a freshly started turn logs
+         *     assistant messages with only reasoning/tool-call blocks, and if the
+         *     previous reply happened to be a handoff note the old text would be
+         *     read as the answer while the model is still working;
+         *   - the text must be newer than the moment the instruction went out;
+         *   - an older Host without `seq`/`turnOpen` falls back to the timestamp.
+         */
+        function handoffAnswerReady(answer, baseline) {
+          if (answer === null || answer === undefined || answer.ok !== true) return false;
+          if (answer.turnOpen === true) return false;
+          var seqFresh = typeof answer.textSeq === "number" && answer.textSeq !== 0 && typeof baseline === "number" && answer.textSeq > baseline;
+          var timeFresh = typeof answer.at === "number" && answer.at > 0 && handoffStartedAt > 0 && answer.at > handoffStartedAt;
+          if (seqFresh || timeFresh) return true;
+          /* A Host too old to report either marker: the caller's count is all we have. */
+          if ((typeof answer.textSeq !== "number" || answer.textSeq === 0) && (typeof answer.at !== "number" || answer.at === 0)) return true;
+          return false;
+        }
+
+        /** Start the watch: the next finished reply that carries a handoff block becomes the card. */
+        function watchHandoff(sessionId) {
+          handoffSession = sessionId;
+          handoffTries = 0;
+          handoffStartedAt = Date.now();
+          stopHandoffPolling();
+          if (typeof window === "undefined") return;
+          function tick() {
+            if (handoffSession !== sessionId) return;
+            handoffTries += 1;
+            handoffPost({ action: "tail", sessionId: sessionId }).then(function (answer) {
+              if (handoffSession !== sessionId) return;
+              if (answer !== null && answer.ok === true) {
+                var reached = typeof answer.lastSeq === "number"
+                  ? answer.lastSeq > handoffBaseline
+                  : (typeof answer.replies === "number" ? answer.replies > handoffBaseline : false);
+                if (reached && handoffAnswerReady(answer, handoffBaseline)) {
+                  var found = handoffBlockOf(answer.text);
+                  if (found !== "") {
+                    setHandoffState({
+                      sessionId: sessionId,
+                      phase: "ready",
+                      block: found,
+                      needsEnter: false,
+                      turn: typeof answer.turn === "number" ? answer.turn : undefined,
+                    });
+                    return;
+                  }
+                }
+                /* Not ready yet (turn still open, text not newer, or no block in
+                   this reply): keep looking at the same session. */
+              }
+              if (handoffTries > 150) {
+                setHandoffState({ sessionId: "", phase: "idle", block: "", needsEnter: false });
+                handoffSession = null;
+                return;
+              }
+              handoffTimer = window.setTimeout(tick, 2000);
+            }).catch(function () {
+              handoffTimer = window.setTimeout(tick, 4000);
+            });
+          }
+          /* The baseline is where the log stood before the instruction is answered. */
+          handoffPost({ action: "tail", sessionId: sessionId }).then(function (answer) {
+            if (handoffSession !== sessionId) return;
+            handoffBaseline = answer !== null && answer.ok === true && typeof answer.lastSeq === "number"
+              ? answer.lastSeq
+              : (answer !== null && answer.ok === true && typeof answer.replies === "number" ? answer.replies : 0);
+            handoffTimer = window.setTimeout(tick, 1500);
+          }).catch(function () {
+            handoffTimer = window.setTimeout(tick, 3000);
+          });
+        }
+
+        /** The turn action: send the instruction and wait for the block. */
+        function startHandoff(sessionId) {
+          if (typeof sessionId !== "string" || sessionId === "") return;
+          /* The card starts in its "working" state; if the Host refuses the send
+             the fallback flips needsEnter so the card tells the user to press
+             Enter instead of pretending the handoff is running. */
+          var startTurn = latestTurnNumber();
+          setHandoffState({ sessionId: sessionId, phase: "running", block: "", needsEnter: false, afterTurn: startTurn === null ? undefined : startTurn });
+          sendToSession(sessionId, handoffInstruction());
+          watchHandoff(sessionId);
+        }
+
+        /**
+         * Fallback carry: the Host opened a blank session and keeps the note as an
+         * unsent draft (the pre-0.35 behaviour). Only used when the Session
+         * controller seam is missing or the workspace is unknown.
+         */
+        function startHandoffSession(workspaceId, prompt) {
+          var service = data.service;
+          if (service !== null && service !== undefined && typeof service.startSession === "function") {
+            try {
+              service.startSession(workspaceId, { prompt: prompt, whenDraftExists: "replace" });
+              resetHandoff();
+              autoSendDraft(t("handoff.preamble").slice(0, 12));
+              return true;
+            } catch (error) {
+              /* fall through to the clipboard */
+            }
+          }
+          try {
+            if (navigator !== undefined && navigator.clipboard !== undefined) navigator.clipboard.writeText(prompt);
+          } catch (error) {
+            /* clipboard unavailable */
+          }
+          resetHandoff();
+          return false;
+        }
+
+        /**
+         * The card carries it over: open a fresh Session in the same workspace and
+         * put the note in as its first prompt through the Host's own API.
+         *
+         * `connectWorkspace` creates (or reuses) the blank and returns its id
+         * without navigating; `sessions.using` retains that session until it is
+         * open, so the prompt is the session's real first message - nothing has to
+         * be typed into a composer and no Enter is synthesised.
+         */
+        function carryHandoff(sessionId, block) {
+          var text = typeof block === "string" ? block.trim() : "";
+          if (text === "") return;
+          handoffPost({ action: "save", sessionId: sessionId, text: text }).catch(function () { return null; }).then(function () {
+            var owner = workspaceOfSession(sessionId);
+            var workspaceId = owner === null || owner === undefined ? undefined : owner.workspaceId;
+            var service = data.service;
+            var sessions = sessionsService();
+            var prompt = t("handoff.preamble") + "\n\n" + text;
+            if (workspaceId !== undefined
+              && service !== null && service !== undefined
+              && typeof service.connectWorkspace === "function"
+              && typeof service.openSession === "function"
+              && sessions !== null && typeof sessions.using === "function") {
+              service.connectWorkspace(workspaceId).then(function (newSessionId) {
+                try { service.openSession(newSessionId); } catch (error) { /* the prompt still lands */ }
+                return sessions.using(newSessionId, { source: HANDOFF_SOURCE }, function (reference) {
+                  var binding = reference === null || reference === undefined ? undefined : reference.binding;
+                  var session = binding === null || binding === undefined ? undefined : binding.session;
+                  if (session === undefined || session === null || typeof session.prompt !== "function") throw new Error("session unavailable");
+                  return session.prompt([{ type: "text", text: prompt }], "queue");
+                });
+              }).then(function (result) {
+                if (result !== null && result !== undefined && result.ok === false) throw new Error("the session refused the prompt");
+                resetHandoff();
+              }).catch(function () {
+                startHandoffSession(workspaceId, prompt);
+              });
+              return;
+            }
+            startHandoffSession(workspaceId, prompt);
+          });
+        }
+
+        /** Ask the current Session to rewrite the handoff with the user's adjustments. */
+        function rewriteHandoff(sessionId, extra) {
+          var text = extra.trim() === "" ? t("handoff.regeneratePrompt") : t("handoff.adjustPrompt") + "\n\n" + extra.trim();
+          var startTurn = latestTurnNumber();
+          setHandoffState({ sessionId: sessionId, phase: "running", block: "", needsEnter: false, afterTurn: startTurn === null ? undefined : startTurn });
+          sendToSession(sessionId, text);
+          handoffBaseline = 0;
+          handoffTries = 0;
+          handoffSession = sessionId;
+          watchHandoff(sessionId);
+        }
+
+        /**
+         * The handoff question card.
+         *
+         * Visual language copied from the Host's own ask-a-question card (the one the
+         * question tool renders): a raised panel with a title, numbered option rows
+         * and one footer of actions. Two mutually exclusive choices plus a free-text
+         * field, which takes precedence when it has content.
+         */
+        function HandoffTailCard(props) {
+          var sessionId = props !== undefined && props !== null && typeof props.sessionId === "string" ? props.sessionId : "";
+          var pair = react.useState(currentHandoffState());
+          var live = pair[0];
+          var setLive = pair[1];
+          react.useEffect(function () {
+            return subscribeHandoff(function (next) { setLive(next); });
+          }, []);
+          var choice = react.useState("confirm");
+          var picked = choice[0];
+          var setPicked = choice[1];
+          var extraPair = react.useState("");
+          var extra = extraPair[0];
+          var setExtra = extraPair[1];
+
+          var state = live;
+          if (state === null || state === undefined || state.sessionId !== sessionId) return null;
+          /* One rendered `turnTail` per turn: show the card only on the turn the
+             note came from, and the progress line only on the newest turn (the
+             open one). Props without a turn number keep the old behaviour. */
+          var turn = props !== undefined && props !== null && typeof props.turn === "number" ? props.turn : null;
+          if (state.phase === "running" && turn !== null) {
+            if (typeof state.afterTurn === "number") {
+              /* Only a turn that started after the click can be the answer. */
+              if (turn <= state.afterTurn) return null;
+            } else {
+              var latest = latestTurnNumber();
+              if (latest !== null && turn !== latest) return null;
+            }
+          }
+          if (state.phase === "ready" && turn !== null) {
+            var target = typeof state.turn === "number" ? state.turn : latestTurnNumber();
+            if (target !== null && turn !== target) return null;
+          }
+          if (state.phase === "running") {
+            return h("div", { className: "wsr-handoff-live" }, state.needsEnter === true ? t("handoff.pressEnter") : t("handoff.preparing"));
+          }
+          if (state.phase !== "ready") return null;
+
+          function optionRow(id, index, title, description) {
+            return h("button", {
+              type: "button",
+              key: "opt-" + id,
+              className: "wsr-qoption" + (picked === id ? " wsr-qoption-selected" : ""),
+              onClick: function () { setPicked(id); },
+            },
+              h("span", { className: "wsr-qnum" }, String(index)),
+              h("span", { className: "wsr-qtext" },
+                h("span", { className: "wsr-qtitle" }, title),
+                h("span", { className: "wsr-qdetail" }, description),
+              ),
+            );
+          }
+
+          return h("div", { className: "wsr-qcard" },
+            h("div", { className: "wsr-qhead" },
+              h("div", { className: "wsr-qheading" },
+                h("div", { className: "wsr-qeyebrow" }, t("handoff.eyebrow")),
+                h("div", { className: "wsr-qtitle" }, t("handoff.found")),
+              ),
+              h("button", {
+                type: "button",
+                className: "wsr-qicon",
+                title: t("handoff.preview"),
+                onClick: function () {
+                  var body = typeof document !== "undefined" ? document.querySelector('[data-wsr-handoff-preview="' + sessionId + '"]') : null;
+                  if (body !== null && body !== undefined && body.style !== undefined) {
+                    body.style.display = body.style.display === "none" ? "" : "none";
+                  }
+                },
+              }, t("handoff.preview")),
+            ),
+            h("div", { className: "wsr-qoptions" },
+              optionRow("confirm", 1, t("handoff.confirm"), t("handoff.confirmDesc")),
+              optionRow("redo", 2, t("handoff.regen"), t("handoff.regenDesc")),
+            ),
+            h("div", { className: "wsr-qextra" },
+              h("textarea", {
+                className: "wsr-handoff-extra",
+                placeholder: t("handoff.extraPlaceholder"),
+                value: extra,
+                onChange: function (event) { setExtra(event.target.value); },
+              }),
+            ),
+            h("div", { "data-wsr-handoff-preview": sessionId, className: "wsr-qpreview", style: { display: "none" } }, state.block),
+            h("div", { className: "wsr-qfooter" },
+              h("div", { className: "wsr-qactions" },
+                h("button", {
+                  type: "button",
+                  className: "wsr-qcancel",
+                  onClick: function () { resetHandoff(); },
+                }, t("handoff.cancel")),
+                h("button", {
+                  type: "button",
+                  className: "wsr-qsubmit",
+                  onClick: function () {
+                    if (extra.trim() !== "") { rewriteHandoff(sessionId, extra); return; }
+                    if (picked === "redo") { rewriteHandoff(sessionId, ""); return; }
+                    carryHandoff(sessionId, state.block);
+                  },
+                }, t("handoff.submit")),
+              ),
+            ),
+          );
+        }
+
+        /**
+         * Turn actions: the handoff sits in the same row as copy / rate / branch,
+         * which the chat renders once at the end of a completed turn.
+         */
+        function HandoffTurnAction(props) {
+          var Icon = ui.IconShareOutlineRegular;
+          var Tooltip = ui.Tooltip;
+          var label = t("menu.handoff");
+          var button = h("button", {
+            type: "button",
+            className: "wsr-msg-btn",
+            "aria-label": label,
+            "data-wsr-handoff-action": "true",
+            onClick: function () {
+              var sessionId = props !== undefined && props !== null && typeof props.sessionId === "string" ? props.sessionId : null;
+              if (sessionId !== null) startHandoff(sessionId);
+            },
+          }, typeof Icon === "function" ? h(Icon, { size: 16 }) : null);
+          return typeof Tooltip === "function" ? h(Tooltip, { label: label, side: "bottom" }, button) : button;
+        }
+
+        /** Session "..." menu row: hand the work over to a fresh Session. */
+        function HandoffMenuItem(props) {
+          var Item = ui.MenuItemButton;
+          if (typeof Item !== "function") return null;
+          var Icon = ui.IconDataOutlineRegular;
+          return h(Item, {
+            icon: typeof Icon === "function" ? h(Icon, {}) : undefined,
+            onSelect: function () {
+              /* Open the conversation first so the running handoff (and later the
+                 card) is visible; the prompt itself does not need the composer. */
+              var service = data.service;
+              if (service !== null && service !== undefined && typeof service.openSession === "function") {
+                try { service.openSession(props.sessionId); } catch (error) { /* the send still lands */ }
+              }
+              startHandoff(props.sessionId);
+            },
+          }, t("menu.handoff"));
+        }
+
+        /** Session "..." menu row: token statistics of that session. */
+        function StatsMenuItem(props) {
+          var Item = ui.MenuItemButton;
+          if (typeof Item !== "function") return null;
+          var Icon = ui.IconDataOutlineRegular;
+          return h(Item, {
+            icon: typeof Icon === "function" ? h(Icon, {}) : undefined,
+            onSelect: function () { openStatsPanel(props.sessionId); },
+          }, t("menu.stats"));
+        }
+
+        /** Settings -> General row: how old a session must be before it is folded. */
+        function SettingsRow(props) {
+          var settings = props.useStore(function (state) { return state; });
+          var days = Number(settings.foldDays);
+          if (!Number.isFinite(days)) days = DEFAULT_DAYS;
+          var keep = settings.keepActive !== false;
+          var text = t("settings.title");
+          return h("div", { className: "wsr-setRow" },
+            h("div", { className: "wsr-setText" },
+              h("div", { className: "wsr-setTitle" }, text),
+              h("div", { className: "wsr-setDesc" }, t("settings.description")),
+            ),
+            h("div", { className: "wsr-controls" },
+              h("button", {
+                type: "button",
+                className: "wsr-step",
+                "aria-label": text + " -1",
+                onClick: function () { props.actions.setFoldDays(days - 1); },
+              }, "-"),
+              h("input", {
+                type: "number",
+                className: "wsr-input",
+                min: MIN_DAYS,
+                max: MAX_DAYS,
+                value: String(days),
+                "aria-label": text,
+                onChange: function (event) { props.actions.setFoldDays(event.target.value); },
+              }),
+              h("button", {
+                type: "button",
+                className: "wsr-step",
+                "aria-label": text + " +1",
+                onClick: function () { props.actions.setFoldDays(days + 1); },
+              }, "+"),
+              h("label", { className: "wsr-exempt" },
+                h("input", {
+                  type: "checkbox",
+                  checked: keep,
+                  onChange: function (event) { props.actions.setKeepActive(event.target.checked); },
+                }),
+                t("settings.exempt")),
+            ),
+          );
+        }
+
+        /** Settings -> General row: the workspaces pinned above the recency order. */
+        function PinnedWorkspacesRow(props) {
+          var settings = props.useStore(function (state) { return state; });
+          var workspaces = typeof props.useWorkspaces === "function"
+            ? props.useWorkspaces(function (state) { return state; })
+            : data.workspaces;
+          var pinned = normalizeWorkspaceIds(settings.pinnedWorkspaces);
+          var lines = pinned.map(function (workspaceId) {
+            var name = workspaceName(workspaces, workspaceId);
+            return h("div", { className: "wsr-pin-line", key: workspaceId },
+              h("span", { className: "wsr-pin-name", title: name }, name),
+              h("button", {
+                type: "button",
+                className: "wsr-btn",
+                onClick: function () {
+                  var next = [];
+                  for (var i = 0; i < pinned.length; i += 1) if (pinned[i] !== workspaceId) next.push(pinned[i]);
+                  props.actions.setPinnedWorkspaces(next);
+                },
+              }, t("pins.unpin")),
+            );
+          });
+          return h("div", { className: "wsr-setRow" },
+            h("div", { className: "wsr-setText" },
+              h("div", { className: "wsr-setTitle" }, t("pins.title")),
+              h("div", { className: "wsr-setDesc" }, t("pins.description")),
+            ),
+            h("div", { className: "wsr-pin-list" },
+              pinned.length === 0 ? h("div", { className: "wsr-pin-empty" }, t("pins.empty")) : lines,
+              pinned.length > 1
+                ? h("button", {
+                  type: "button",
+                  className: "wsr-btn wsr-pin-clear",
+                  onClick: function () { props.actions.setPinnedWorkspaces([]); },
+                }, t("pins.clear"))
+                : null,
+            ),
+          );
+        }
+
+        /* ---------------------------- trash panel ---------------------------- */
+
+/** A page reload rebuilds the sidebar from disk without restarting the app. */
+        function reloadButton() {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "wsr-step";
+          button.textContent = t("ui.reload");
+          button.addEventListener("click", function () {
+            try {
+              if (typeof window !== "undefined" && window.location !== undefined && typeof window.location.reload === "function") window.location.reload();
+            } catch (error) {
+              /* nothing to do */
+            }
+          });
+          return button;
+        }
+
+        function formatBytes(value) {
+          var n = Number(value) || 0;
+          if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " MB";
+          if (n >= 1024) return (n / 1024).toFixed(0) + " KB";
+          return n + " B";
+        }
+
+        function formatWhen(at) {
+          if (typeof at !== "number" || at <= 0) return "";
+          try {
+            return new Date(at).toLocaleString();
+          } catch (error) {
+            return "";
+          }
+        }
+
+        /** Modal: list the plugin's trash, restore an entry or delete it for good. */
+        function openTrashPanel() {
+          if (typeof document === "undefined") return;
+          closeStatsPanel();
+          var backdrop = statsDiv("wsr-modal-backdrop");
+          var panel = statsDiv("wsr-modal");
+          backdrop.appendChild(panel);
+          var head = statsDiv("wsr-modal-head");
+          head.appendChild(statsDiv("wsr-modal-title", t("trash.title")));
+          var tools = statsDiv("wsr-modal-tools");
+          var adopt = document.createElement("button");
+          adopt.type = "button";
+          adopt.className = "wsr-btn";
+          adopt.title = t("adopt.description");
+          adopt.textContent = t("adopt.action");
+          tools.appendChild(adopt);
+          var close = document.createElement("button");
+          close.type = "button";
+          close.className = "wsr-modal-close";
+          close.textContent = "\u00d7";
+          close.addEventListener("click", closeStatsPanel);
+          tools.appendChild(close);
+          head.appendChild(tools);
+          panel.appendChild(head);
+          var body = statsDiv("wsr-modal-body");
+          panel.appendChild(body);
+          backdrop.addEventListener("click", function (event) {
+            if (event !== undefined && event.target === backdrop) closeStatsPanel();
+          });
+          document.body.appendChild(backdrop);
+          statsModal = backdrop;
+          document.addEventListener("keydown", onStatsKey);
+
+          var post = function (payload) {
+            return fetch("/ws-recency/trash", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(payload),
+            }).then(function (response) {
+              return response.text().then(function (text) {
+                var parsed = null;
+                try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+                return { status: response.status, text: text, json: parsed };
+              });
+            });
+          };
+
+          var load = function (note) {
+            body.textContent = t("trash.loading");
+            post({ action: "list" }).then(function (answer) {
+              body.textContent = "";
+              if (note !== undefined && note !== "") {
+                body.appendChild(statsDiv("wsr-stats-detail", note));
+                var noteActions = statsDiv("wsr-trash-actions");
+                noteActions.appendChild(reloadButton());
+                body.appendChild(noteActions);
+              }
+              if (answer.json === null || answer.json.ok !== true) {
+                body.appendChild(statsDiv("wsr-stats-note", t("trash.failed") + "HTTP " + answer.status + " \u00b7 " + (answer.text || "").slice(0, 120)));
+                return;
+              }
+              var entries = Array.isArray(answer.json.entries) ? answer.json.entries : [];
+              if (entries.length === 0) {
+                body.appendChild(statsDiv("wsr-stats-note", t("trash.empty")));
+                return;
+              }
+              var list = statsDiv("wsr-move-list");
+              for (var i = 0; i < entries.length; i += 1) {
+                (function (entry) {
+                  var row = document.createElement("div");
+                  row.className = "wsr-trash-row";
+                  var text = statsDiv("wsr-move-text");
+                  var title = entry.sessionId === null ? entry.name : entry.sessionId;
+                  text.appendChild(statsDiv("wsr-move-title", title));
+                  var meta = [];
+                  if (entry.reason === "delete") meta.push(t("trash.reason.delete"));
+                  else if (entry.reason === "move") meta.push(t("trash.reason.move"));
+                  meta.push(formatBytes(entry.sizeBytes));
+                  var when = formatWhen(entry.at);
+                  if (when !== "") meta.push(when);
+                  text.appendChild(statsDiv("wsr-move-path", meta.join(" \u00b7 ")));
+                  if (typeof entry.cwd === "string" && entry.cwd !== "") {
+                    text.appendChild(statsDiv("wsr-move-path", entry.cwd));
+                  }
+                  row.appendChild(text);
+
+                  var actions = statsDiv("wsr-trash-actions");
+                  if (entry.restorable === true) {
+                    var restore = document.createElement("button");
+                    restore.type = "button";
+                    restore.className = "wsr-btn";
+                    restore.textContent = t("trash.restore");
+                    restore.addEventListener("click", function () {
+                      askConfirm(t("trash.confirmRestore"), function () {
+                        load(t("trash.working"));
+                        post({ action: "restore", name: entry.name }).then(function (result) {
+                          var ok = result.json !== null && result.json.ok === true;
+                          load(ok ? t("trash.restored") : t("trash.failed") + (result.json && result.json.error ? result.json.error : result.text));
+                        }).catch(function (error) {
+                          load(t("trash.failed") + (error && error.message ? error.message : error));
+                        });
+                      });
+                    });
+                    actions.appendChild(restore);
+                  }
+                  var purge = document.createElement("button");
+                  purge.type = "button";
+                  purge.className = "wsr-btn wsr-btn-danger";
+                  purge.textContent = t("trash.purge");
+                  purge.addEventListener("click", function () {
+                    askConfirm(t("trash.confirmPurge"), function () {
+                      load(t("trash.working"));
+                      post({ action: "purge", name: entry.name }).then(function (result) {
+                        var ok = result.json !== null && result.json.ok === true;
+                        load(ok ? t("trash.purged") : t("trash.failed") + (result.json && result.json.error ? result.json.error : result.text));
+                      }).catch(function (error) {
+                        load(t("trash.failed") + (error && error.message ? error.message : error));
+                      });
+                    });
+                  });
+                  actions.appendChild(purge);
+                  row.appendChild(actions);
+                  list.appendChild(row);
+                })(entries[i]);
+              }
+              body.appendChild(list);
+              body.appendChild(statsDiv("wsr-stats-note", t("trash.note")));
+            }).catch(function (error) {
+              body.textContent = t("trash.failed") + (error && error.message ? error.message : error);
+            });
+          };
+          adopt.addEventListener("click", function () {
+            adopt.disabled = true;
+            adopt.textContent = t("adopt.working");
+            adoptUnlistedSessions(function (message) {
+              adopt.disabled = false;
+              adopt.textContent = t("adopt.action");
+              load(message);
+            });
+          });
+          load("");
+        }
+
+        /* --------------------------- trash panel page ------------------------ */
+
+        function trashPost(payload) {
+          return fetch("/ws-recency/trash", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(function (response) {
+            return response.text().then(function (text) {
+              var parsed = null;
+              try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+              return { status: response.status, text: text, json: parsed };
+            });
+          });
+        }
+
+        /* ---------- session content search -------------------------------- */
+
+        /** What the uncontrolled input holds; the panel keeps only results in state. */
+        var searchDraft = "";
+        /** Bumped per search so a slow answer cannot overwrite a newer one. */
+        var searchGeneration = 0;
+
+        function searchPost(body) {
+          return fetch("/ws-recency/search", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body || {}),
+          }).then(function (response) {
+            return response.text().then(function (text) {
+              var parsed = null;
+              try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+              return { status: response.status, text: text, json: parsed };
+            });
+          });
+        }
+
+        function SearchPanelIcon(props) {
+          var Icon = ui.IconSearchOutlineRegular;
+          if (typeof Icon !== "function") return null;
+          var size = props !== undefined && props !== null && typeof props.size === "number" ? props.size : 16;
+          return h(Icon, { size: size });
+        }
+
+        function conversationScroller() {
+          if (typeof document === "undefined") return null;
+          try {
+            var direct = document.querySelector("[data-conversation-scroll]");
+            if (direct !== null) return direct;
+            /* The marker is the documented hook; without it, take the nearest
+               ancestor that actually scrolls rather than giving up. */
+            var anyRow = document.querySelector("[data-chat-turn]");
+            var node = anyRow === null ? null : anyRow.parentElement;
+            while (node !== null && node !== undefined) {
+              if (typeof node.scrollHeight === "number" && node.scrollHeight > node.clientHeight && node.clientHeight > 0) return node;
+              node = node.parentElement;
+            }
+            return null;
+          } catch (error) {
+            return null;
+          }
+        }
+
+        function turnRowOf(turn) {
+          if (typeof document === "undefined" || !isFinite(turn)) return null;
+          try {
+            return document.querySelector('[data-chat-turn="' + String(turn) + '"]');
+          } catch (error) {
+            return null;
+          }
+        }
+
+        /** Ring the row the search sent the user to, without taking keyboard focus. */
+        function flashTurnRow(row) {
+          try {
+            if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
+          } catch (error) {
+            /* some engines only accept the boolean form */
+          }
+          try {
+            row.setAttribute("data-wsr-flash", "true");
+            window.setTimeout(function () {
+              if (row.getAttribute("data-wsr-flash") !== null) row.removeAttribute("data-wsr-flash");
+            }, 2600);
+          } catch (error) {
+            /* the conversation may have been replaced while we waited */
+          }
+        }
+
+        /**
+         * Bring one turn of one session into view.
+         *
+         * The chat mounts recent turns first and loads older history as the
+         * scroller approaches its top, so this walks the scroller upwards until
+         * the turn exists, then centres it. Every step is DOM-only: nothing here
+         * steals focus or synthesises keystrokes.
+         */
+        function revealTurn(sessionId, turn) {
+          if (typeof document === "undefined" || !isFinite(turn)) return;
+          var deadline = Date.now() + 8000;
+          var steps = 0;
+          var tick = function () {
+            if (Date.now() > deadline) return;
+            if (currentConversationId() !== sessionId) {
+              window.setTimeout(tick, 150);
+              return;
+            }
+            var row = turnRowOf(turn);
+            if (row !== null) {
+              flashTurnRow(row);
+              return;
+            }
+            var scroller = conversationScroller();
+            if (scroller === null) {
+              window.setTimeout(tick, 150);
+              return;
+            }
+            if (steps >= 24) {
+              window.setTimeout(tick, 300);
+              return;
+            }
+            steps += 1;
+            var height = typeof scroller.clientHeight === "number" && scroller.clientHeight > 0 ? scroller.clientHeight : 600;
+            var top = Number(scroller.scrollTop) || 0;
+            scroller.scrollTop = Math.max(0, top - Math.max(240, height * 0.8));
+            window.setTimeout(tick, 260);
+          };
+          window.setTimeout(tick, 120);
+        }
+
+        function jumpToSearchHit(hit) {
+          openSessionRow(hit.sessionId);
+          revealTurn(hit.sessionId, hit.turn);
+        }
+
+        /** Snippet text with every query term wrapped in a mark. */
+        function highlightSnippet(snippet, terms) {
+          var text = typeof snippet === "string" ? snippet : "";
+          var lower = text.toLowerCase();
+          var ranges = [];
+          for (var i = 0; i < terms.length; i += 1) {
+            var term = String(terms[i] || "").toLowerCase();
+            if (term === "") continue;
+            var from = 0;
+            while (from < lower.length) {
+              var at = lower.indexOf(term, from);
+              if (at < 0) break;
+              ranges.push({ start: at, end: at + term.length });
+              from = at + term.length;
+            }
+          }
+          ranges.sort(function (a, b) { return a.start - b.start; });
+          var pieces = [];
+          var cursor = 0;
+          for (var j = 0; j < ranges.length; j += 1) {
+            var range = ranges[j];
+            if (range.start < cursor) continue;
+            if (range.start > cursor) pieces.push(h("span", { key: "t" + j }, text.slice(cursor, range.start)));
+            pieces.push(h("mark", { key: "m" + j, className: "wsr-mark" }, text.slice(range.start, range.end)));
+            cursor = range.end;
+          }
+          if (cursor < text.length) pieces.push(h("span", { key: "tail" }, text.slice(cursor)));
+          return pieces;
+        }
+
+        /**
+         * The search page: one input, one list of hits.
+         *
+         * The host answers with the sessions it managed to index inside its time
+         * budget plus how many are still pending, so this asks again until the
+         * index has caught up instead of making the user press search twice.
+         */
+        function SearchPanelPage() {
+          var state = react.useState({ loaded: false, query: "", hits: [], terms: [], scanned: 0, total: 0, pending: 0, took: 0, busy: false, error: "" });
+          var view = state[0];
+          var setView = state[1];
+
+          var run = function (text, refresh) {
+            var query = typeof text === "string" ? text.trim() : "";
+            searchGeneration += 1;
+            var generation = searchGeneration;
+            if (query === "") {
+              setView({ loaded: true, query: "", hits: [], terms: [], scanned: 0, total: 0, pending: 0, took: 0, busy: false, error: "" });
+              return;
+            }
+            setView({ loaded: true, query: query, hits: view.hits, terms: view.terms, scanned: view.scanned, total: view.total, pending: view.pending, took: view.took, busy: true, error: "" });
+            var ask = function (needRefresh) {
+              searchPost({ query: query, refresh: needRefresh === true }).then(function (answer) {
+                if (generation !== searchGeneration) return;
+                var json = answer.json;
+                if (json === null || json.ok !== true) {
+                  setView({ loaded: true, query: query, hits: [], terms: [], scanned: 0, total: 0, pending: 0, took: 0, busy: false, error: t("search.failed") + "HTTP " + answer.status });
+                  return;
+                }
+                setView({
+                  loaded: true,
+                  query: query,
+                  hits: Array.isArray(json.hits) ? json.hits : [],
+                  terms: Array.isArray(json.terms) ? json.terms : [],
+                  scanned: json.scanned || 0,
+                  total: json.total || 0,
+                  pending: json.pending || 0,
+                  took: json.took || 0,
+                  busy: false,
+                  error: "",
+                });
+                if (json.pending > 0) {
+                  window.setTimeout(function () {
+                    if (generation === searchGeneration) ask(false);
+                  }, 150);
+                }
+              }).catch(function (error) {
+                if (generation !== searchGeneration) return;
+                setView({ loaded: true, query: query, hits: [], terms: [], scanned: 0, total: 0, pending: 0, took: 0, busy: false, error: t("search.failed") + (error && error.message ? error.message : error) });
+              });
+            };
+            ask(refresh === true);
+          };
+
+          var input = h("input", {
+            className: "wsr-search-input",
+            type: "search",
+            placeholder: t("search.placeholder"),
+            defaultValue: "",
+            onChange: function (event) {
+              searchDraft = event !== undefined && event.target !== undefined ? String(event.target.value || "") : "";
+            },
+            onKeyDown: function (event) {
+              if (event !== undefined && event.key === "Enter") {
+                if (typeof event.preventDefault === "function") event.preventDefault();
+                run(searchDraft, false);
+              }
+            },
+          });
+
+          var rows = view.hits.map(function (hit, index) {
+            return h("div", {
+              className: "wsr-hit",
+              key: String(hit.sessionId || "") + ":" + String(hit.seq || 0) + ":" + String(index),
+              title: hit.cwd || "",
+              onClick: function () { jumpToSearchHit(hit); },
+            },
+              h("div", { className: "wsr-hit-head" },
+                h("span", { className: "wsr-hit-role " + (hit.role === "user" ? "wsr-hit-user" : "wsr-hit-agent") }, hit.role === "user" ? t("search.you") : t("search.assistant")),
+                h("span", { className: "wsr-hit-title" }, hit.title || hit.sessionId || ""),
+                typeof hit.workspace === "string" && hit.workspace !== "" ? h("span", { className: "wsr-hit-ws" }, hit.workspace) : null,
+                h("span", { className: "wsr-hit-turn" }, t("search.turn", { n: String(hit.turn) })),
+              ),
+              h("div", { className: "wsr-hit-snippet" },
+                hit.lead === true ? "\u2026" : null,
+                highlightSnippet(hit.snippet || "", view.terms),
+                hit.tail === true ? "\u2026" : null,
+              ),
+            );
+          });
+
+          return h("div", { className: "wsr-page wsr-search-page" },
+            h("div", { className: "wsr-page-head" },
+              h("div", { className: "wsr-page-heading" }, t("search.title")),
+            ),
+            h("div", { className: "wsr-search-bar" },
+              input,
+              h("button", { type: "button", className: "wsr-btn", onClick: function () { run(searchDraft, false); } }, t("search.run")),
+            ),
+            view.busy ? h("div", { className: "wsr-page-note" }, t("search.searching")) : null,
+            view.error !== "" ? h("div", { className: "wsr-page-note wsr-page-error" }, view.error) : null,
+            view.pending > 0 ? h("div", { className: "wsr-page-note" }, t("search.indexing", { n: String(view.pending) })) : null,
+            view.loaded && !view.busy ? h("div", { className: "wsr-page-note" }, t("search.summary", { hits: String(view.hits.length), sessions: String(view.total), ms: String(view.took) })) : null,
+            view.loaded && !view.busy && view.hits.length === 0 ? h("div", { className: "wsr-page-note" }, t("search.empty")) : null,
+            h("div", { className: "wsr-page-list" }, rows),
+          );
+        }
+
+        /** The sidebar's trash entry glyph. */
+        function TrashPanelIcon(props) {
+          var Icon = ui.IconTrashOutlineRegular;
+          if (typeof Icon !== "function") return null;
+          var size = props !== undefined && props !== null && typeof props.size === "number" ? props.size : 16;
+          return h(Icon, { size: size });
+        }
+
+        /**
+         * The trash page itself: the plugin's trash (deleted logs) on top, the
+         * Host's archive set (hidden sessions whose logs are still in place)
+         * below. Both are "put away", so both are managed from here.
+         */
+        /** One entry as a card: badge, title, the numbers that matter, and actions. */
+        function entryCard(options) {
+          return h("div", { className: "wsr-card", key: options.key, title: options.titleAttr || "" },
+            h("div", { className: "wsr-card-head" },
+              options.badge !== null && options.badge !== undefined
+                ? h("span", { className: "wsr-card-badge " + (options.badgeClass || "") }, options.badge)
+                : null,
+              h("div", { className: options.titleClass || "wsr-card-title" }, options.title),
+              h("div", { className: "wsr-card-actions" }, options.actions),
+            ),
+            options.chips.length > 0
+              ? h("div", { className: "wsr-chips" }, options.chips.map(function (text, index) {
+                return h("span", { className: "wsr-chip", key: String(index) }, text);
+              }))
+              : null,
+            typeof options.path === "string" && options.path !== ""
+              ? h("div", { className: "wsr-card-path" }, options.path)
+              : null,
+          );
+        }
+
+        function TrashPanelPage() {
+          var state = react.useState({ loaded: false, entries: [], archived: [], note: "", failed: "" });
+          var view = state[0];
+          var setView = state[1];
+
+          var load = function (note) {
+            /* The two listings are independent: a Host without the archive route
+               still gets a working trash, so failures are reported per section. */
+            return Promise.all([trashPost({ action: "list" }), trashPost({ action: "archived" })]).then(function (answers) {
+              var trash = answers[0];
+              var archive = answers[1];
+              var entries = [];
+              var archived = [];
+              /* One error line: the trash failure is the one that matters, an
+                 archive-only failure still explains itself below. */
+              var failed = "";
+              if (trash.json === null || trash.json.ok !== true) {
+                failed = t("trash.failed") + "HTTP " + trash.status + " \u00b7 " + (trash.text || "").slice(0, 120);
+              } else {
+                entries = Array.isArray(trash.json.entries) ? trash.json.entries : [];
+              }
+              if (archive.json !== null && archive.json.ok === true) {
+                archived = Array.isArray(archive.json.entries) ? archive.json.entries : [];
+              } else if (typeof archive.json === "object" && archive.json !== null && typeof archive.json.error === "string" && archive.json.error.indexOf("unknown action") !== -1) {
+                /* An older host half: no archive section, not an error. */
+                archived = null;
+              } else if (failed === "") {
+                failed = t("archive.failed") + "HTTP " + archive.status + " \u00b7 " + (archive.text || "").slice(0, 120);
+              }
+              setView({ loaded: true, entries: entries, archived: archived, note: note === undefined ? "" : note, failed: failed });
+            }).catch(function (error) {
+              setView({ loaded: true, entries: [], archived: [], note: "", failed: t("trash.failed") + (error && error.message ? error.message : error) });
+            });
+          };
+
+          react.useEffect(function () { load(""); }, []);
+
+          var act = function (entry, action) {
+            var question = action === "restore" ? t("trash.confirmRestore") : t("trash.confirmPurge");
+            askConfirm(question, function () {
+              load(t("trash.working"));
+              trashPost({ action: action, name: entry.name }).then(function (result) {
+                var ok = result.json !== null && result.json.ok === true;
+                load(ok ? (action === "restore" ? t("trash.restored") : t("trash.purged")) : t("trash.failed") + (result.json && result.json.error ? result.json.error : result.text));
+              }).catch(function (error) {
+                load(t("trash.failed") + (error && error.message ? error.message : error));
+              });
+            });
+          };
+
+          var actArchived = function (entry, action) {
+            var question = action === "unarchive" ? t("archive.confirmUnarchive")
+              : action === "forget" ? t("archive.confirmForget")
+                : t("archive.confirmDelete");
+            askConfirm(question, function () {
+              load(t("trash.working"));
+              trashPost({ action: action, sessionId: entry.sessionId }).then(function (result) {
+                if (result.json === null || result.json.ok !== true) {
+                  load(t("archive.failed") + (result.json && result.json.error ? result.json.error : result.text));
+                  return;
+                }
+                if (action === "unarchive") {
+                  load(t("archive.unarchived") + (result.json.listed === false ? t("archive.noWorkspace") : ""));
+                } else if (action === "forget") {
+                  load(t("archive.forgotten"));
+                } else {
+                  load(t("archive.deleted"));
+                }
+              }).catch(function (error) {
+                load(t("archive.failed") + (error && error.message ? error.message : error));
+              });
+            });
+          };
+
+          var rows = [];
+          for (var i = 0; i < view.entries.length; i += 1) {
+            (function (entry) {
+              var chips = [];
+              if (entry.turns > 0) chips.push(t("trash.turns") + " " + entry.turns);
+              if (entry.steps > 0) chips.push(t("trash.steps") + " " + entry.steps);
+              if (entry.tokens > 0) chips.push(formatTokens(entry.tokens) + " tokens");
+              chips.push(formatBytes(entry.sizeBytes));
+              var when = formatWhen(entry.at);
+              if (when !== "") chips.push(when);
+              var actions = [];
+              if (entry.restorable === true) {
+                actions.push(h("button", {
+                  type: "button",
+                  className: "wsr-btn",
+                  onClick: function () { act(entry, "restore"); },
+                }, t("trash.restore")));
+              }
+              actions.push(h("button", {
+                type: "button",
+                className: "wsr-btn wsr-btn-danger",
+                onClick: function () { act(entry, "purge"); },
+              }, t("trash.purge")));
+              var hasTitle = typeof entry.title === "string" && entry.title !== "";
+              rows.push(entryCard({
+                key: entry.name,
+                badge: entry.reason === "move" ? t("trash.reason.move") : t("trash.reason.delete"),
+                badgeClass: entry.reason === "move" ? "wsr-card-badge-muted" : "wsr-card-badge-danger",
+                titleClass: hasTitle ? "wsr-card-title" : "wsr-card-title wsr-card-title-id",
+                title: hasTitle ? entry.title : (entry.sessionId === null ? entry.name : entry.sessionId),
+                titleAttr: entry.sessionId === null ? entry.name : entry.sessionId,
+                chips: chips,
+                path: entry.cwd,
+                actions: actions,
+              }));
+            })(view.entries[i]);
+          }
+
+          var archivedRows = [];
+          var archivedList = Array.isArray(view.archived) ? view.archived : [];
+          for (var j = 0; j < archivedList.length; j += 1) {
+            (function (entry) {
+              var chips = [];
+              if (entry.turns > 0) chips.push(t("trash.turns") + " " + entry.turns);
+              if (entry.steps > 0) chips.push(t("trash.steps") + " " + entry.steps);
+              if (entry.tokens > 0) chips.push(formatTokens(entry.tokens) + " tokens");
+              chips.push(formatBytes(entry.sizeBytes));
+              var when = formatWhen(entry.lastAt !== 0 ? entry.lastAt : entry.createdAt);
+              if (when !== "") chips.push(when);
+              if (entry.blank === true) chips.push(t("archive.blank"));
+              var hasTitle = typeof entry.title === "string" && entry.title !== "";
+              archivedRows.push(entryCard({
+                key: entry.sessionId,
+                badge: t("archive.badge"),
+                badgeClass: "wsr-card-badge-muted",
+                titleClass: hasTitle ? "wsr-card-title" : "wsr-card-title wsr-card-title-id",
+                title: hasTitle ? entry.title : entry.sessionId,
+                titleAttr: entry.sessionId,
+                chips: chips,
+                path: typeof entry.workspacePath === "string" && entry.workspacePath !== "" ? entry.workspacePath : entry.cwd,
+                actions: [
+                  h("button", { type: "button", className: "wsr-btn", onClick: function () { actArchived(entry, "unarchive"); } }, t("archive.unarchive")),
+                  h("button", { type: "button", className: "wsr-btn", onClick: function () { actArchived(entry, "delete"); } }, t("archive.delete")),
+                  h("button", { type: "button", className: "wsr-btn wsr-btn-danger", onClick: function () { actArchived(entry, "forget"); } }, t("archive.forget")),
+                ],
+              }));
+            })(archivedList[j]);
+          }
+
+          var archiveSection = view.archived === null ? null : [
+            h("div", { className: "wsr-page-section", key: "archive-head" },
+              h("span", null, t("trash.section.archived")),
+              h("span", { className: "wsr-page-count" }, String(archivedList.length)),
+            ),
+            archivedList.length === 0
+              ? h("div", { className: "wsr-page-note", key: "archive-empty" }, t("archive.empty"))
+              : h("div", { className: "wsr-page-list", key: "archive-list" }, archivedRows),
+            h("div", { className: "wsr-page-note", key: "archive-note" }, t("archive.description")),
+          ];
+
+          return h("div", { className: "wsr-page" },
+            h("div", { className: "wsr-page-head" },
+              h("div", { className: "wsr-page-heading" }, t("trash.title")),
+              h("button", {
+                type: "button",
+                className: "wsr-btn",
+                onClick: function () { load(""); },
+              }, t("ui.refresh")),
+              h("button", {
+                type: "button",
+                className: "wsr-btn",
+                onClick: function () { reloadButton().click(); },
+              }, t("ui.reload")),
+            ),
+            view.note !== "" ? h("div", { className: "wsr-page-note" }, view.note) : null,
+            view.failed !== "" ? h("div", { className: "wsr-page-note wsr-page-error" }, view.failed) : null,
+            !view.loaded ? h("div", { className: "wsr-page-note" }, t("trash.loading"))
+              : [
+                h("div", { className: "wsr-page-section", key: "trash-head" },
+                  h("span", null, t("trash.section.trash")),
+                  h("span", { className: "wsr-page-count" }, String(view.entries.length)),
+                ),
+                view.entries.length === 0
+                  ? h("div", { className: "wsr-page-note", key: "trash-empty" }, t("trash.empty"))
+                  : h("div", { className: "wsr-page-list", key: "trash-list" }, rows),
+                h("div", { className: "wsr-page-note", key: "trash-note" }, t("trash.note")),
+                archiveSection,
+              ],
+          );
+        }
+
+        /**
+         * Sidebar footer action: the trash, one click away from the account area.
+         *
+         * Geometry is the same house rule the official launchers follow
+         * (`dshUpdateLauncher` / `dshMarketLauncher`): full-width seat bled 2px
+         * per side, 42px tall, 12px radius. `wide` comes from the slot, so the
+         * narrow rail keeps its 36px circle instead of a stretched row.
+         */
+        function TrashFooterAction(props) {
+          var wide = props === undefined || props === null || props.wide !== false;
+          var label = t("trash.title");
+          var Icon = ui.IconTrashOutlineRegular;
+          return h("button", {
+            type: "button",
+            className: "wsr-footer-action",
+            title: label,
+            "aria-label": label,
+            "aria-haspopup": "dialog",
+            style: {
+              boxSizing: "border-box",
+              width: "100%",
+              alignSelf: "stretch",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              gap: "10px",
+              minHeight: "40px",
+              padding: "0 10px",
+              border: "none",
+              background: "transparent",
+              color: "var(--dsw-alias-label-primary)",
+              borderRadius: "10px",
+              font: "inherit",
+              fontSize: "14px",
+              lineHeight: "22px",
+              cursor: "pointer",
+              textAlign: "left",
+            },
+            onClick: function () { openTrashPanel(); },
+          },
+            h("span", {
+              style: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: "20px", height: "20px", flex: "none" },
+              "aria-hidden": "true",
+            }, typeof Icon === "function" ? h(Icon, { size: 18 }) : null),
+            wide ? h("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, label) : null);
+        }
+
+        /**
+         * Re-attach sessions that belong to no workspace.
+         *
+         * General Settings is the host's own page, so this repair action lives in
+         * our trash panel instead of posing as a shell preference there.
+         */
+        function adoptUnlistedSessions(done) {
+          fetch("/ws-recency/session-adopt", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                var parsed = null;
+                try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+                return { status: response.status, text: text, json: parsed };
+              });
+            })
+            .then(function (answer) {
+              if (answer.json !== null && answer.json.ok === true) {
+                var count = Array.isArray(answer.json.adopted) ? answer.json.adopted.length : 0;
+                var cleaned = typeof answer.json.cleaned === "number" ? answer.json.cleaned : 0;
+                var text = t("adopt.done", { n: count });
+                if (cleaned > 0) text += t("adopt.cleaned", { n: cleaned });
+                done(text);
+                return;
+              }
+              done(t("adopt.failed") + (answer.json && answer.json.error ? answer.json.error : answer.text.slice(0, 120)));
+            })
+            .catch(function (error) {
+              done(t("adopt.failed") + (error && error.message ? error.message : error));
+            });
+        }
+
+        /**
+         * Settings -> General row: whether a tool's argument tokens count as tool
+         * consumption or as the agent's own writing.
+         */
+        function ArgModeRow(props) {
+          var settings = props.useStore(function (state) { return state; });
+          var agentMode = settings.argMode === "agent";
+          return h("div", { className: "wsr-setRow" },
+            h("div", { className: "wsr-setText" },
+              h("div", { className: "wsr-setTitle" }, t("argmode.title")),
+              h("div", { className: "wsr-setDesc" }, t("argmode.description")),
+            ),
+            h("div", { className: "wsr-controls" },
+              h("label", { className: "wsr-exempt" },
+                h("input", {
+                  type: "checkbox",
+                  checked: agentMode,
+                  onChange: function (event) { props.actions.setArgMode(event.target.checked ? "agent" : "tool"); },
+                }),
+                t("argmode.enabled")),
+            ),
+          );
+        }
+
+        function shutdown() {
+          disposed = true;
+          if (timer !== null) window.clearTimeout(timer);
+          timer = null;
+          if (ticker !== null) window.clearInterval(ticker);
+          ticker = null;
+          if (observer !== null) observer.disconnect();
+          observer = null;
+          written.forEach(function (section) {
+            if (section.style !== undefined) section.style.order = "";
+            if (section.getAttribute(RANK_ATTR) !== null) section.removeAttribute(RANK_ATTR);
+          });
+          written.clear();
+          hidden.forEach(function (element) {
+            if (element.removeAttribute !== undefined) element.removeAttribute(HIDDEN_ATTR);
+          });
+          hidden.clear();
+          toggles.forEach(function (button) { button.remove(); });
+          toggles.clear();
+          if (composerPill !== null && typeof composerPill.remove === "function") composerPill.remove();
+          composerPill = null;
+          dragState = null;
+          removeDropFeedback();
+          removePinDivider();
+          removePinButtons();
+          if (typeof document !== "undefined" && document.body !== null) document.body.removeAttribute(DRAG_BODY_ATTR);
+          if (typeof document !== "undefined") {
+            var headers = document.querySelectorAll("[" + DRAG_READY_ATTR + '="true"]');
+            for (var h = 0; h < headers.length; h += 1) {
+              headers[h].removeAttribute(DRAG_READY_ATTR);
+              headers[h].removeAttribute("draggable");
+            }
+            var pinnedSections = document.querySelectorAll("[" + PINNED_ATTR + "]");
+            for (var s = 0; s < pinnedSections.length; s += 1) {
+              pinnedSections[s].removeAttribute(PINNED_ATTR);
+              pinnedSections[s].removeAttribute(DRAGGING_ATTR);
+            }
+          }
+          expandClicks.clear();
+          roots.forEach(function (root) { root.removeAttribute(ROOT_ATTR); });
+          roots.clear();
+          expandedSections.clear();
+          var tag = document.querySelector('style[data-plugin-css="' + CSS_ID + '"]');
+          if (tag !== null) tag.remove();
+        }
+
+        var inject = ["slots", "locale"];
+
+        function apply_(ctx) {
+          installCss();
+          installDragListeners();
+          /* Navigation lives in the Workspace UI service. It can be provided
+             after this plugin applies, so take it now when it is there and let
+             cordis hand it over later when it is not. Never fail the plugin over
+             it: workspaceService() also retries at use time. */
+          data.ctx = ctx;
+          try { data.service = ctx.get("uiWorkspace") || null; } catch (error) { data.service = null; }
+          try {
+            if (typeof ctx.inject === "function") {
+              ctx.inject(["uiWorkspace"], function (workspaceCtx) {
+                try { data.service = workspaceCtx.uiWorkspace || null; } catch (error) { /* the lazy path covers it */ }
+              });
+            }
+          } catch (error) {
+            /* an older client runtime without per-service inject */
+          }
+          var prefs = clientStore.defineStore({
+            init: function () {
+              return { enabled: true, foldDays: DEFAULT_DAYS, keepActive: true, argMode: "tool", pinnedWorkspaces: [] };
+            },
+            persist: "dsh.ws-recency.prefs.v1",
+            actions: {
+              setEnabled: function (draft, value) { draft.enabled = value === true; },
+              setKeepActive: function (draft, value) { draft.keepActive = value === true; },
+              setArgMode: function (draft, value) { draft.argMode = value === "agent" ? "agent" : "tool"; },
+              setPinnedWorkspaces: function (draft, value) {
+                draft.pinnedWorkspaces = normalizeWorkspaceIds(value);
+              },
+              setFoldDays: function (draft, value) {
+                var next = Number(value);
+                if (!Number.isFinite(next)) return;
+                draft.foldDays = Math.min(MAX_DAYS, Math.max(MIN_DAYS, Math.round(next)));
+              },
+            },
+          });
+
+          ctx.effect(function () {
+            return ctx.locale.register(NS, { zh: ZH, en: EN });
+          }, "dsh-ws-recency: dictionaries");
+
+          /* The statistics renderer is plain DOM, not a slot component: keep the
+             store handle so it can read the argument-mode preference live. */
+
+          prefsStore = prefs;
+
+          if (typeof MutationObserver === "function" && top() !== null) {
+            observer = new MutationObserver(schedule);
+            observer.observe(top(), {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: [BUSY_RANK_ATTR, "data-row-key", "aria-expanded", "aria-selected", "draggable"],
+            });
+          }
+
+          ctx.slots.inject("shell.overlay", function () {
+            return ctx.slots.register({
+              name: "shell.overlay",
+              id: "ws-recency",
+              order: 5,
+              store: prefs,
+              locale: NS,
+            }, Sorter);
+          });
+
+          ctx.slots.inject("settings.general.item", function () {
+            return ctx.slots.register({
+              name: "settings.general.item",
+              id: "ws-recency",
+              order: 45,
+              store: prefs,
+              locale: NS,
+            }, SettingsRow);
+          });
+
+          ctx.slots.inject("settings.general.item", function () {
+            return ctx.slots.register({
+              name: "settings.general.item",
+              id: "ws-recency-pins",
+              order: 46,
+              store: prefs,
+              locale: NS,
+            }, PinnedWorkspacesRow);
+          });
+
+          ctx.slots.inject("sidebar.panellist", function () {
+            return ctx.slots.register({
+              name: "sidebar.panellist",
+              id: "ws-recency-search",
+              order: 19,
+              locale: NS,
+              label: function () { return t("search.title"); },
+            }, SearchPanelIcon);
+          });
+
+          ctx.slots.inject("main", function () {
+            return ctx.slots.register({
+              name: "main",
+              key: "ws-recency-search",
+              locale: NS,
+            }, SearchPanelPage);
+          });
+
+          ctx.slots.inject("sidebar.panellist", function () {
+            return ctx.slots.register({
+              name: "sidebar.panellist",
+              id: "ws-recency-trash",
+              order: 20,
+              locale: NS,
+              label: function () { return t("trash.title"); },
+            }, TrashPanelIcon);
+          });
+
+          ctx.slots.inject("main", function () {
+            return ctx.slots.register({
+              name: "main",
+              key: "ws-recency-trash",
+              locale: NS,
+            }, TrashPanelPage);
+          });
+
+          ctx.slots.inject("settings.general.item", function () {
+            return ctx.slots.register({
+              name: "settings.general.item",
+              id: "ws-recency-argmode",
+              order: 48,
+              store: prefs,
+              locale: NS,
+            }, ArgModeRow);
+          });
+
+          ctx.slots.inject("conversation.chat.assistant-actions", function () {
+            return ctx.slots.register({
+              name: "conversation.chat.assistant-actions",
+              id: "ws-recency-handoff",
+              order: 20,
+              locale: NS,
+              inject: function (sessionId) { return { sessionId: sessionId }; },
+            }, HandoffTurnAction);
+          });
+
+          ctx.slots.inject("conversation.chat.turnTail", function () {
+            return ctx.slots.register({
+              name: "conversation.chat.turnTail",
+              id: "ws-recency-handoff-card",
+              order: 30,
+              locale: NS,
+              inject: function (sessionId) { return { sessionId: sessionId }; },
+            }, HandoffTailCard);
+          });
+
+          ctx.slots.inject("sidebar.workspaces.session.menu.item", function () {
+            return ctx.slots.register({
+              name: "sidebar.workspaces.session.menu.item",
+              id: "ws-recency-move",
+              order: 690,
+              store: prefs,
+              locale: NS,
+            }, MoveMenuItem);
+          });
+
+          ctx.slots.inject("sidebar.workspaces.session.menu.item", function () {
+            return ctx.slots.register({
+              name: "sidebar.workspaces.session.menu.item",
+              id: "ws-recency-handoff",
+              order: 685,
+              store: prefs,
+              locale: NS,
+            }, HandoffMenuItem);
+          });
+
+          ctx.slots.inject("sidebar.workspaces.session.menu.item", function () {
+            return ctx.slots.register({
+              name: "sidebar.workspaces.session.menu.item",
+              id: "ws-recency-stats",
+              order: 710,
+              store: prefs,
+              locale: NS,
+            }, StatsMenuItem);
+          });
+
+          ctx.slots.inject("sidebar.workspaces.session.menu.item", function () {
+            return ctx.slots.register({
+              name: "sidebar.workspaces.session.menu.item",
+              id: "ws-recency-trash",
+              order: 700,
+              store: prefs,
+              locale: NS,
+            }, TrashMenuItem);
+          });
+
+          ctx.effect(function () {
+            return function () { shutdown(); };
+          }, "dsh-ws-recency: list observer");
+
+          if (typeof window.setInterval === "function") ticker = window.setInterval(schedule, TICK_MS);
+          schedule();
+        }
+
+        /* Test hook: the card state is a module observable, invisible from outside. */
+        exports.__handoff = {
+          current: currentHandoffState,
+          set: setHandoffState,
+          blockOf: handoffBlockOf,
+          readyOf: handoffAnswerReady,
+          start: startHandoff,
+          rewrite: rewriteHandoff,
+          carry: carryHandoff,
+          send: sendToSession,
+        };
+
+        /* Test hook: the jump and the highlighting are pure DOM helpers. */
+        exports.__search = {
+          draft: function () { return searchDraft; },
+          highlight: highlightSnippet,
+          reveal: revealTurn,
+          jump: jumpToSearchHit,
+          turnRow: turnRowOf,
+        };
+
+        /* Test hook: workspace pinning without a real HTML5 drag session. */
+        exports.__pins = {
+          order: function () {
+            var out = [];
+            for (var i = 0; i < lastGroups.length; i += 1) out.push(lastGroups[i].id);
+            return out;
+          },
+          pinned: function () { return pinnedWorkspaceIds(settingsOf(), data.workspaces); },
+          plan: function (clientY) { return planWorkspaceDrop(clientY); },
+          begin: beginWorkspaceDragFor,
+          end: endWorkspaceDrag,
+          dropAt: function (clientY, workspaceId) {
+            if (workspaceId !== undefined) beginWorkspaceDragFor(workspaceId);
+            var plan = planWorkspaceDrop(clientY);
+            commitWorkspaceDrop(plan);
+            endWorkspaceDrag();
+            return plan;
+          },
+          set: function (ids) {
+            if (data.actions !== null && data.actions !== undefined && typeof data.actions.setPinnedWorkspaces === "function") {
+              data.actions.setPinnedWorkspaces(ids);
+            }
+            schedule();
+          },
+          divider: function () { return pinDivider; },
+        };
+
+        exports.name = "dsh-ws-recency";
+        exports.inject = inject;
+        exports.apply = apply_;
+        return module.exports;
+      },
+    });
+  } catch (error) {
+    console.warn("[dsh-ws-recency] client half failed to load:", error);
+  }
+})();

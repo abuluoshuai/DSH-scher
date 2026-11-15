@@ -1,0 +1,75 @@
+# dsh-scher 整合包的 Loader 层：整个整合包只有这一份 patch。
+#
+# 七个插件各自仍是 plugins/ 下一个带完整 package.json 的独立包（原本的
+# name / version / exports / dsh.client / locale / icon 全部保留），这里只负责
+# 把它们的 Host 行插进 Loader 栈。行名写成相对本文件的路径，Loader 会把行锚定在
+# 本文件所在目录，于是：
+#
+#   * Host 半边以各插件自己的目录为模块根，第三方依赖从 DSH-scher/node_modules 解析；
+#   * Client 半边按「最近的 package.json」认定身份，每个插件继续用原来的包名
+#     （dsh-better-sidebar / dsh-remote / dsh-global-todo …）注册客户端模块，
+#     槽位、locale、图标、`/plugins/<包名>/…` 资源路由都与单独安装时一致。
+#
+# 行 id 与各插件单独发布时保持一致，profile 的 cordis.patch.yml 仍可按这些 id
+# 覆盖 config（config 整体替换、不深合并）：
+#   color-style / global-todo / dsh-offwork-countdown / better-sidebar /
+#   ws-recency / dsh-remote / system-monitor
+#
+# 行顺序沿用整合前 profile 里的 bundle 顺序：better-sidebar 在 dsh-remote 之前，
+# 后者启动时按服务发现挂接右侧栏标签页。
+- insert:
+    # ── 配色方案（dsh-color-style 0.5.0）────────────────────────────────────
+    # 纯前端插件：Host 行只为让 Client 注册表把 ./client.js 送进浏览器。
+    - id: color-style
+      name: './plugins/dsh-color-style/lib/index.js'
+
+    # ── 全局待办（dsh-global-todo 0.23.2）──────────────────────────────────
+    # config 与插件自带 cordis.patch.yml 的默认值一致；profile 覆盖时需整体重述。
+    - id: global-todo
+      name: './plugins/dsh-global-todo/lib/index.js'
+      config:
+        # 清单文件位置。空 = `$DSH_HOME/global-todo/todos.json`。
+        storePath: ''
+        # 「新会话」派发的默认工作目录。空 = 交给 harness 决定。
+        dispatchDir: ''
+        # 每条待办保留多少条活动记录。
+        activityLimit: 50
+        # 写入时拒绝磁盘上不存在的文件路径；false 允许先挂文档后创建。
+        requireExistingFiles: true
+        # 是否每轮注入简短的使用说明。
+        guidance: true
+        # Agent 工具集：all / core / none。
+        toolGroups: all
+        # 面板内置文件夹浏览器的起始目录。空 = 先家目录、再 Host 的 cwd。
+        browseRoot: ''
+        # 多机同步：两台机器各自的清单在同一个目录里合并。
+        # 面板设置里写入的 syncDir / syncMinutes 优先于这里的默认值。
+        sync:
+          dir: ''
+          intervalMinutes: 5
+
+    # ── 下班倒计时（dsh-offwork-countdown 0.1.0）───────────────────────────
+    - id: dsh-offwork-countdown
+      name: './plugins/dsh-offwork-countdown/index.js'
+
+    # ── 右侧栏（dsh-better-sidebar 0.32.0）─────────────────────────────────
+    # 原 bundle patch 里的聚合防重复挂载保护保留：若日后另有 bundle 以
+    # `dsh-better-sidebar` 这个包名再挂一份，本行自动让位。
+    - id: better-sidebar
+      name: './plugins/dsh-better-sidebar/lib/index.js'
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-better-sidebar' && e.options.id !== 'better-sidebar' && !e.disabled)"
+
+    # ── 工作区最近顺序 / 会话侧栏（dsh-ws-recency 0.27.1）──────────────────
+    - id: ws-recency
+      name: './plugins/dsh-ws-recency/index.js'
+
+    # ── 远程工作区（dsh-remote 1.1.2）──────────────────────────────────────
+    - id: dsh-remote
+      name: './plugins/dsh-remote/lib/boot.js'
+
+    # ── 系统监控 dock（dsh-system-monitor 0.1.0）───────────────────────────
+    - id: system-monitor
+      name: './plugins/dsh-system-monitor/lib/index.js'
+      config:
+        intervalMs: 2000
+        gpuCacheMs: 1500

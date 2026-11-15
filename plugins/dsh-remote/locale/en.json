@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Remote workspaces",
+    "description": "SSH remote workspaces for DeepSeek Harness: parallel projects across hosts, remote file browsing and editing, recursive search, terminals, Git diffs, X11 forwarding, macOS hosts, and workspace-bound Agent tools to edit, build and test remotely. The remote explorer and terminal also register into the Better Sidebar."
+  }
+}

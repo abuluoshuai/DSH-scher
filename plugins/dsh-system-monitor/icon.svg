@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36" role="img" aria-label="System monitor">
+  <!-- A display carrying three level bars: the dock entry is a small meter of
+       the machine the session runs on. Drawn for this plugin, monochrome so it
+       follows the surrounding icon set in both themes. -->
+  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="4" y="7" width="28" height="22" rx="4" />
+  </g>
+  <g fill="currentColor">
+    <rect x="9" y="17.5" width="4" height="6.5" rx="1.6" />
+    <rect x="16" y="12.5" width="4" height="11.5" rx="1.6" />
+    <rect x="23" y="15" width="4" height="9" rx="1.6" />
+  </g>
+</svg>

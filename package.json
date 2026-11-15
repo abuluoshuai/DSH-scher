@@ -1,0 +1,32 @@
+{
+  "name": "dsh-scher",
+  "version": "0.1.0",
+  "description": "Scher 个人插件整合包：工作区侧栏、配色方案、右侧栏、远程工作区、下班倒计时、系统监控与全局待办，一次安装全部到位。",
+  "license": "MIT",
+  "type": "module",
+  "icon": "./icon/icon-256.png",
+  "engines": {
+    "node": ">=22.19.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "exports": {
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon/icon-256.png",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon",
+    "plugins",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

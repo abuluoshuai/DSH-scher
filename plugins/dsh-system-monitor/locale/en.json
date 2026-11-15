@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "System monitor",
+    "description": "Four progress bars under the composer show the CPU, memory, GPU and GPU-memory usage of the host running this session. Sampled in the DSH Host process, so a locally launched Harness and a remotely hosted one both report the server the session actually lives on. Supports Windows, macOS and Linux; NVIDIA, AMD and Apple GPUs. Click the bars to toggle the numbers; hover for exact values."
+  }
+}
