@@ -2,8 +2,9 @@
 
 ## 0.1.0 — 2026-11-16
 
-首个整合版本：把下列 7 个插件按「当前正在运行的修改后版本」收进同一个项目、同一个
-bundle，安装一次即可全部挂载。
+首个整合版本：把下列 9 个插件按「当前正在运行的修改后版本」收进同一个项目、同一个
+bundle，安装一次即可全部挂载。所有插件代码**直接落盘**在本仓库（不用 git clone /
+submodule），因为其中若干包已按个人习惯定制，与上游发布版不再是同一份代码。
 
 - **dsh-ws-recency 0.27.1**（本地定制）：工作区整组按最近活跃排序，支持拖动或表头图钉把
   整个工作区固定到顶部；丢弃颜色标记与「全局置顶」区；保留过期历史折叠、归档与回收站、
@@ -16,18 +17,27 @@ bundle，安装一次即可全部挂载。
 - **dsh-system-monitor 0.1.0**（自研）：dock 里的 CPU／内存／显卡／显存进度条，指标在
   DSH Host 进程采集，支持远程工作区与 Linux/macOS，支持 NVIDIA/AMD/Apple 显卡。
 - **dsh-global-todo 0.23.2**：跨会话全局待办，Agent 报「完成」只进待确认，人点头才算数。
+- **@xmanrui/dsh-im 5.10.0**：IM 机器人，接入微信／飞书／企业微信／钉钉／QQ／Telegram／
+  WhatsApp／Slack／Discord／Matrix；直接整合已安装代码，不再走上游 submodule 跟随路线。
+- **dsh-comfyui-workspace 0.7.0**（自研）：ComfyUI 简易工作台，导入工作流、卡片式调参、
+  跑图/跑视频并归档每次参数与种子。
 
 工程结构：
 
-- `cordis.patch.yml` 用相对路径行（`./plugins/<name>/<入口>.js`）把 7 个 Host 行插进 Loader；
+- `cordis.patch.yml` 用相对路径行（`./plugins/<name>/<入口>.js`）把 9 个 Host 行插进 Loader；
   Client 半边按最近的 `package.json` 认定身份，沿用各插件原来的包名，客户端模块、槽位、
   locale、图标与 `/plugins/<包名>/…` 资源路由都不变。
 - `plugins/` 下每个插件是完整独立包（原 `package.json` / `exports` / `dsh.client` /
-  `locale` / `icon` 原样保留）。
+  `locale` / `icon` 原样保留）。`dsh-im` 只保留运行需要的文件（`lib`、`locale`、`assets`、
+  清单与文档），未带上游的 `src` / `plugin-src` / `bin` / `scripts` 开发目录。
 - 为 `dsh-ws-recency` 与 `dsh-remote` 补了 `locale/`（插件行在 Plugins 页的标题与说明）
   与原创 SVG 图标（两者上游都没有图标）；其余插件沿用各自的 locale/icon。
 - 行 id 保持与单独安装时一致（`color-style`、`global-todo`、`dsh-offwork-countdown`、
-  `better-sidebar`、`ws-recency`、`dsh-remote`、`system-monitor`），profile 的
-  `cordis.patch.yml` 仍可按 id 覆盖配置。
+  `better-sidebar`、`ws-recency`、`dsh-remote`、`system-monitor`、`xmanrui-dsh-im`、
+  `comfyui-workspace`），profile 的 `cordis.patch.yml` 仍可按 id 覆盖配置。
 - `better-sidebar` 自带的「聚合 bundle 重复挂载保护」`!!js` 表达式保留。
-- 已核对：`plugins/` 里的运行时代码与整合前正在运行的版本逐字节一致。
+- `node_modules/`（不进 git）落盘了各插件 Host 半边需要的第三方依赖，含 `sharp` 与
+  `@img/sharp-win32-x64`、`dingtalk-stream`、`imapflow`、`mailparser`、`nodemailer`、
+  `qrcode`、`undici`、`@matrix-org/olm`、腾讯 QQ/企微 SDK、`ssh2`、`ws`、`yaml` 等。
+- 已核对：`plugins/` 里的运行时代码与整合前正在运行的版本逐字节一致（含 `dsh-im` 与
+  `dsh-comfyui-workspace`）。

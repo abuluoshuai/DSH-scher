@@ -73,3 +73,36 @@
       config:
         intervalMs: 2000
         gpuCacheMs: 1500
+
+    # ── IM 机器人（@xmanrui/dsh-im 5.10.0）─────────────────────────────────
+    # 微信 / 飞书 / 企业微信 / 钉钉 / QQ / Telegram / WhatsApp / Slack /
+    # Discord / Matrix 接入 DSH。配置、凭据与会话绑定仍在 $DSH_HOME/im。
+    - id: xmanrui-dsh-im
+      name: './plugins/dsh-im/lib/index.js'
+
+    # ── ComfyUI 简易工作台（dsh-comfyui-workspace 0.7.0）───────────────────
+    # config 与插件自带 cordis.patch.yml 的默认值一致；面板 Settings 里保存的
+    # 值（settings.json）优先于这里的默认值。profile 覆盖时需整体重述。
+    - id: comfyui-workspace
+      name: './plugins/dsh-comfyui-workspace/lib/index.js'
+      config:
+        # 本插件自己的 JSON（导入的工作流、服务器设置、运行归档）存放位置。
+        # 空 = `$DSH_HOME/comfyui-workspace/`。
+        home: ''
+        # 从未打开过面板的机器上的初始服务器设置。
+        server:
+          url: 'http://127.0.0.1:8188'
+          username: ''
+          # 优先在面板的 Settings 对话框里保存（会写成凭据记录）；
+          # 这里写明文也能用，但它会留在这个 YAML 里。
+          password: ''
+          headers: {}
+        # 每个工作流保留多少次运行归档（超出丢弃最旧的）。
+        archiveLimit: 200
+        # 把每次完成的产出下载到当次选定的本地目录；
+        # false 时只归档服务器报告的产物文件名。
+        downloadOutputs: true
+        # Agent 工具集：all（默认）/ core（list/run/status/stop）/ none。
+        toolGroups: all
+        # 给模型的使用说明；false 则不注册任何提示段落。
+        guidance: true

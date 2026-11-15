@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "ComfyUI workspace",
+    "description": "Import a ComfyUI workflow as a vertical stack of node cards, tune it without the browser, run it over the ComfyUI API, and archive every run's parameters and seed."
+  }
+}

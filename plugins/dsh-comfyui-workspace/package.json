@@ -1,0 +1,56 @@
+{
+  "name": "dsh-comfyui-workspace",
+  "version": "0.7.0",
+  "private": true,
+  "description": "ComfyUI workflow panel for DeepSeek Harness: import a workflow JSON, tune every node as a card, run it through the ComfyUI HTTP/WS API, and archive each run's parameters and seed.",
+  "type": "module",
+  "license": "MIT",
+  "author": "abuluoshuai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abuluoshuai/DSH-comfyui-workspace.git"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "comfyui",
+    "qwen-image",
+    "workflow",
+    "stable-diffusion"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node --check lib/index.js"
+  }
+}

@@ -1,0 +1,41 @@
+# dsh-comfyui-workspace — bundle patch
+#
+# Contributes exactly one Loader row (`comfyui-workspace`). The profile's own
+# `cordis.patch.yml` can target that row id to override `config` or set
+# `disabled: true`.
+#
+# `config` is replaced wholesale by an override, not deep-merged: restate every
+# key you want to keep when you override it.
+- insert:
+    - id: comfyui-workspace
+      name: 'dsh-comfyui-workspace'
+      config:
+        # Where this plugin keeps its own JSON: imported workflows, the server
+        # settings, and the run archive.
+        # Empty = `$DSH_HOME/comfyui-workspace/`.
+        home: ''
+        # Seed for the settings on a machine that has never opened the panel.
+        # The panel writes the real values to `settings.json`; a value set there
+        # wins over this block, because this block only ever fills the gap.
+        server:
+          url: 'http://127.0.0.1:8188'
+          username: ''
+          # Prefer the panel's Settings dialog (it writes the password as a
+          # credential record). A plaintext value here works, but it sits in
+          # this YAML file.
+          password: ''
+          # Extra request headers, for a reverse proxy or an API token.
+          headers: {}
+        # How many archived runs to keep per workflow (oldest dropped).
+        archiveLimit: 200
+        # Download every finished output into the run's chosen local directory.
+        # `false` only archives the filenames the server reports.
+        downloadOutputs: true
+        # Which Agent tools this deployment registers:
+        #   all   every tool below (default)
+        #   core  list / run / status / stop
+        #   none  no tools; the panel keeps working
+        toolGroups: all
+        # Guide the model on when to use the tools. `false` registers no
+        # prompt section at all.
+        guidance: true
