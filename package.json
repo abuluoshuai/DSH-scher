@@ -1,7 +1,7 @@
 {
   "name": "dsh-scher",
-  "version": "0.1.0",
-  "description": "Scher 个人插件整合包：工作区侧栏、配色方案、右侧栏、远程工作区、下班倒计时、系统监控与全局待办，一次安装全部到位。",
+  "version": "0.2.0",
+  "description": "Scher 个人插件整合包：工作区侧栏、配色方案、右侧栏、远程工作区、下班倒计时、系统监控、全局待办、IM 机器人、ComfyUI 工作台，以及会话完成时的任务栏闪烁提醒，一次安装全部到位。",
   "license": "MIT",
   "type": "module",
   "icon": "./icon/icon-256.png",

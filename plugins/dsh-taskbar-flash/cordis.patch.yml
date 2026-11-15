@@ -1,0 +1,9 @@
+# dsh-taskbar-flash bundle patch (standalone installation).
+#
+# Inside the Scher integration bundle the row comes from the root
+# cordis.patch.yml with a package-relative path; this file keeps the package
+# installable on its own. The profile's own cordis.patch.yml can target the row
+# id `taskbar-flash` to override `config` or set `disabled: true`.
+- insert:
+    - id: taskbar-flash
+      name: 'dsh-taskbar-flash'

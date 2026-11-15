@@ -74,6 +74,14 @@
         intervalMs: 2000
         gpuCacheMs: 1500
 
+    # ── 完成时闪烁任务栏（dsh-taskbar-flash 0.1.0）──────────────────────────
+    # 根会话跑完一轮、且 DSH 窗口不在前台时，闪烁 Windows 任务栏图标提醒；
+    # 窗口在前台不闪，子代理完成默认忽略。config 省略即用默认值：
+    #   enabled / ignoreSubagents / onlyWhenUnfocused / flashCount /
+    #   cooldownMs / processName / powerShellCommand / log
+    - id: taskbar-flash
+      name: './plugins/dsh-taskbar-flash/lib/index.js'
+
     # ── IM 机器人（@xmanrui/dsh-im 5.10.0）─────────────────────────────────
     # 微信 / 飞书 / 企业微信 / 钉钉 / QQ / Telegram / WhatsApp / Slack /
     # Discord / Matrix 接入 DSH。配置、凭据与会话绑定仍在 $DSH_HOME/im。

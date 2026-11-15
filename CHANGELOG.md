@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 — 2026-11-16
+
+- **新增 `dsh-taskbar-flash 0.1.0`**（自研，Host-only）：会话跑完一轮、且 DSH 桌面窗口
+  不在前台时，闪烁 Windows 任务栏上的 DSH 图标提醒用户；窗口在前台时不闪（只看屏幕即可），
+  子代理的完成默认忽略，冷却窗口内的多次完成合并成一次。
+  - 实现：监听 `agent/status` 的 `running → idle`（根会话），用随包 PowerShell 脚本按
+    `process.ppid` 找到 Electron 主进程的任务栏窗口，调用 Win32 `FlashWindowEx`
+    （`FLASHW_ALL | FLASHW_TIMERNOFG`，窗口激活后停止）。不修改 DSH 安装目录、不依赖
+    Electron 内部 IPC。
+  - 配置：`enabled`、`ignoreSubagents`、`onlyWhenUnfocused`、`flashCount`、`cooldownMs`、
+    `processName`、`powerShellCommand`、`log`；排查日志 `~/.dsh/taskbar-flash/attention.log`。
+  - 限制：仅 Windows；依赖系统 PowerShell；窗口隐藏到托盘时没有任务栏按钮。
+
 ## 0.1.0 — 2026-11-16
 
 首个整合版本：把下列 9 个插件按「当前正在运行的修改后版本」收进同一个项目、同一个
