@@ -2,7 +2,7 @@
 
 > 本文件是**给正在替用户安装本仓库的 Agent 读的**。核心要求只有两条：
 > **逐模块询问用户要不要装**；**相互依赖 / 外部前提必须重点提醒**。
-> 不要一次性把 10 个模块全装上再问。
+> 不要一次性把 9 个模块全装上再问。
 
 ## 0. 先读模块目录
 
@@ -52,7 +52,6 @@ install_bundle target="git+https://github.com/abuluoshuai/DSH-scher.git" enabled
 | `color-style` | 包含任务栏闪烁（仅 Windows） | 「配色全平台可用；会话完成时闪烁任务栏是 Windows-only，依赖系统 PowerShell，可在 `config.taskbarFlash.enabled` 单独关闭」 |
 | `im` | 外部前提 + 最大体积 | 「需要各平台自己的机器人凭据（token / 应用 ID 与密钥 / 扫码）与网络；不用的平台不用配」 |
 | `comfyui` | 外部前提 | 「需要一个可访问的 ComfyUI 服务（默认 http://127.0.0.1:8188）；没有它面板能打开但跑不了任务」 |
-| `feishu-notify` | 依赖 `im` 模块 + 飞书机器人 | 「推送用的是 dsh-im 里已配好的飞书机器人：**先装 IM 模块并配好机器人**；默认发给机器人 owner，要发群里就把 receiveId 配成 chat_id」 |
 | `ws-recency` / `better-sidebar` | 不冲突 | 一个管左侧工作区会话栏、一个管右侧栏，可以都要 |
 
 ## 4. 应用用户的选择
@@ -61,7 +60,7 @@ install_bundle target="git+https://github.com/abuluoshuai/DSH-scher.git" enabled
 
 ### A. 用 plugin_manager（推荐）
 
-1. `set_bundle target="dsh-scher" enabled=true`（挂载全部 10 行；此时先别让用户以为已经装完）。
+1. `set_bundle target="dsh-scher" enabled=true`（挂载全部 9 行；此时先别让用户以为已经装完）。
 2. 对用户**不要**的每个模块，按 `modules.json` 的 `row` 关闭对应行：
 
    ```
@@ -85,14 +84,14 @@ node scripts/select-modules.mjs apply --modules color-style,ws-recency,better-si
 
 ## 5. 验证并汇报
 
-- `list_plugins` 确认 `dsh-scher` 的 10 行里，用户要的是 `active`、不要的是 `disabled`。
+- `list_plugins` 确认 `dsh-scher` 的 9 行里，用户要的是 `active`、不要的是 `disabled`。
 - 汇报格式：装了哪些（含版本）、跳过了哪些、**每个已装模块的外部前提**（SSH 主机、ComfyUI
   服务、IM 凭据、仅 Windows 的闪烁）以及重启/刷新要求。
 - 不要声称用户已经测试过功能；只报告「已安装、已启用、需要用户自己确认的项」。
 - **启用时报 `Cannot find package '@deepseek-ai/dsh-settings'` 之类的 import 错误**（常见于同一台
   机器上刚从本地 `link:` 安装切换到 GitHub 安装）：包其实已经装好，只是正在运行的进程还缓存着
   旧安装的模块路径（`better-sidebar`、`dsh-remote` 最容易中招）。让用户**完全退出并重新打开
-  DSH 应用**，重启后这 10 行会从新副本正常加载；重启后再用 `list_plugins` 复核一次即可。
+  DSH 应用**，重启后这 9 行会从新副本正常加载；重启后再用 `list_plugins` 复核一次即可。
 
 ## 附：模块与行 id 对照
 
@@ -107,4 +106,3 @@ node scripts/select-modules.mjs apply --modules color-style,ws-recency,better-si
 | `global-todo` | `global-todo` | `dsh-global-todo` |
 | `im` | `xmanrui-dsh-im` | `@xmanrui/dsh-im` |
 | `comfyui` | `comfyui-workspace` | `dsh-comfyui-workspace` |
-| `feishu-notify` | `feishu-notify` | `dsh-feishu-notify` |

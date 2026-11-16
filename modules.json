@@ -246,43 +246,6 @@
         "zh": "插件本身很轻；真正的成本是外部 ComfyUI 服务与模型文件。",
         "en": "The plugin is light; the real cost is the external ComfyUI server and its models."
       }
-    },
-    {
-      "id": "feishu-notify",
-      "row": "feishu-notify",
-      "package": "dsh-feishu-notify",
-      "version": "0.1.0",
-      "directory": "plugins/dsh-feishu-notify",
-      "title": {
-        "zh": "飞书完成推送",
-        "en": "Feishu completion push"
-      },
-      "summary": {
-        "zh": "本机任意根会话完成一轮时，把会话名、用户输入和最终助手正文（markdown）推送到飞书。凭据复用 dsh-im 里已配置的飞书机器人。",
-        "en": "On every root Session turn completion on this machine, push the session name, the user prompt and the final assistant markdown to Feishu through the dsh-im Feishu bot."
-      },
-      "sizeMB": 0.02,
-      "defaultSelected": true,
-      "requires": [
-        "im"
-      ],
-      "recommends": [],
-      "external": [
-        {
-          "name": "feishu-bot",
-          "zh": "需要在 dsh-im 里配置并启用一个飞书机器人；没有机器人时会跳过推送。",
-          "en": "A Feishu bot must be configured and activated in dsh-im; without one the push is skipped."
-        },
-        {
-          "name": "feishu-receiver",
-          "zh": "默认推送给机器人 owner 的 open_id；要发到群里请把 receiveIdType/receiveId 配成 chat_id。",
-          "en": "By default it pushes to the bot owner open_id; set receiveIdType/receiveId to a chat_id for a group."
-        }
-      ],
-      "notes": {
-        "zh": "依赖 IM 模块（dsh-im）与其飞书机器人；不装 IM 时这个模块会静默跳过。推送串行排队，正文超 8000 字截断。",
-        "en": "Depends on the dsh-im module and its Feishu bot; without IM it silently skips. Pushes are queued serially; bodies over 8000 chars are truncated."
-      }
     }
   ]
 }

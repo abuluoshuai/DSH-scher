@@ -1,18 +1,5 @@
 # Changelog
 
-## 0.8.0 — 2026-11-17
-
-- **新增模块 dsh-feishu-notify 0.1.0（本地新增）**：本机任意根会话完成一轮时，读取会话
-  JSONL 日志并通过 dsh-im 里配置的飞书机器人推送：
-  - **会话名称**（最新 `session/title`，缺失时取首条输入前 40 字）、
-  - **本轮用户输入**、
-  - **本轮最终助手正文**（原样 markdown，以飞书卡片 `lark_md` 渲染，超 8000 字截断）。
-  - 凭据复用 dsh-im 的飞书机器人（appId/secretRef + Host 凭据存储）；默认接收人为机器人
-    owner 的 open_id，可用 `config.receiveId`/`receiveIdType` 改到指定 chat_id。
-  - 串行队列 + token 缓存；失败只记警告日志；`ignoreSubagents` 默认忽略子代理回合。
-- `modules.json` / INSTALL / README 增加该模块与「依赖 IM 模块 + 飞书机器人」的安装提示；
-  Scher 版本 0.8.0。
-
 ## 0.7.0 — 2026-11-17
 
 - **dsh-ws-recency 升到 0.29.0（本地定制）**：「历史」页改为读会话日志的完整版。
