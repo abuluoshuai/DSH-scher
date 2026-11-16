@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Off-work Countdown",
-    "description": "A countdown pill under the message composer that shows how long is left before you clock off; click it to set your work hours, and it turns into an overtime timer after the end time."
+    "description": "A countdown pill under the message composer shows how long is left before you clock off; click it to set your work hours, and when the end time arrives it turns into an overtime timer and plays a fireworks animation across the DSH window (scope, density and duration are configurable, with a preview button)."
   }
 }

@@ -92,7 +92,9 @@
       "sizeMB": 1.52,
       "defaultSelected": true,
       "requires": [],
-      "recommends": ["better-sidebar"],
+      "recommends": [
+        "better-sidebar"
+      ],
       "recommendsWhy": {
         "better-sidebar": "远程资源管理器、远程文件与终端会注册进右侧栏；没有右侧栏时只能用 DSH 原生侧栏。"
       },
@@ -112,24 +114,24 @@
       "id": "countdown",
       "row": "dsh-offwork-countdown",
       "package": "dsh-offwork-countdown",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "plugins/dsh-offwork-countdown",
       "title": {
         "zh": "下班倒计时",
         "en": "Off-work countdown"
       },
       "summary": {
-        "zh": "输入框下方的下班倒计时胶囊，到点后转成加班计时；时间在胶囊里设置。",
-        "en": "A countdown pill under the composer, turning into an overtime timer after the end time; the schedule is set in the pill."
+        "zh": "输入框下方的下班倒计时胶囊，到点后转成加班计时；到点还会在窗口上放一段可定制烟花（范围/密度/时长，设置里可预览）。",
+        "en": "A countdown pill under the composer that turns into an overtime timer after the end time, then plays a configurable fireworks animation (scope, density, duration; previewable in the settings dialog)."
       },
-      "sizeMB": 0.03,
+      "sizeMB": 0.05,
       "defaultSelected": true,
       "requires": [],
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖，可单独安装。",
-        "en": "No dependencies; safe to install alone."
+        "zh": "无依赖，可单独安装。时间与烟花设置都保存在本机浏览器（localStorage）。",
+        "en": "No dependencies; safe to install alone. Schedule and fireworks settings live in the browser localStorage."
       }
     },
     {
@@ -149,7 +151,9 @@
       "sizeMB": 0.06,
       "defaultSelected": true,
       "requires": [],
-      "recommends": ["remote"],
+      "recommends": [
+        "remote"
+      ],
       "recommendsWhy": {
         "remote": "要监控远程工作区所在主机，需要 dsh-remote 提供的远程会话；只装本模块只看本机。"
       },
@@ -197,7 +201,7 @@
         "zh": "把微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH。",
         "en": "Connect WeChat, Feishu, WeCom, DingTalk, QQ, Telegram, WhatsApp, Slack, Discord and Matrix to DSH."
       },
-      "sizeMB": 22.0,
+      "sizeMB": 22,
       "defaultSelected": false,
       "requires": [],
       "recommends": [],

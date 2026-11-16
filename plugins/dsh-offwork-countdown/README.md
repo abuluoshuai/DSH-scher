@@ -8,6 +8,7 @@ DeepSeek Harness（dsh）Web 界面插件：在输入框下方常驻一枚倒计
 
 - **工作日倒计时**：默认 `09:00 → 18:00`，胶囊显示 `距离下班 08:24:00`，右侧一条细进度条表示今天从上班走到现在走了多远。
 - **到点切换**：下班时间一到，文案先跳成「下班啦」，随后变成加班计时（`已下班 00:03:12`），小圆点轻轻呼吸一下。
+- **下班烟花**：下班时间一到，在 DSH 窗口上放一段烟花（默认整窗、10 秒、密度「多」）。范围 / 密度 / 时长都能在设置里调，并带一个「预览烟花」按钮随时试放。
 - **周末**：周六周日只显示「周末快乐」，不倒数。
 - **改时间**：点胶囊弹出居中设置框，改上班 / 下班时间即时生效。
 - **跟随主题**：只使用 dsh 主题 token（`--dsw-alias-*`），亮色暗色自动适配；文案走 Client locale 服务，中英双语。
@@ -29,6 +30,23 @@ dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown
 - Esc、点遮罩、「取消」都可以关掉设置框。
 
 设置只保存在**本机浏览器**的 `localStorage`（键名 `dsh.offwork-countdown.settings.v1`），不上传、不写会话日志。
+
+## 下班烟花
+
+工作日走到下班时间的那一刻，窗口上会放一段烟花：火箭从底部升起，在空中炸成彩色火花。
+默认整窗、10 秒、密度「多」，只在真实到点自动放一次/天；系统开启「减少动态效果」时自动跳过。
+烟花播放时是一层透明的全窗口 canvas（`pointer-events: none`），不挡点击、不挡输入，结束后自动移除。
+
+点胶囊 →「下班烟花」组里可以调：
+
+- **到点放烟花**：开 / 关（关掉后只保留手动预览）；
+- **范围**：整窗 / 对话区；
+- **密度**：少 / 标准 / 多 / 爆量（粒子总量有上限，避免高密度掉帧）；
+- **持续时间**：3 / 6 / 10 / 15 秒；
+- **预览烟花**：随时试放一次，不占用当天的自动播放次数。
+
+实现：`client.js` 内手绘 canvas（`requestAnimationFrame` + 重力/摩擦/拖尾），无第三方依赖、无声音；
+颜色是固定的霓虹色盘，不跟随宿主主题 token。
 
 ## 实现
 
@@ -63,7 +81,7 @@ MIT © ZydFirst
 
 ## English
 
-An off-work countdown for the DeepSeek Harness Web UI. A pill under the message composer counts down to the end of the workday (default 09:00–18:00), with a thin progress bar for the day so far. When the end time arrives it switches to an overtime timer; weekends just say "Weekend". Click the pill to set your own hours — the setting lives in the browser's `localStorage` (`dsh.offwork-countdown.settings.v1`) and never leaves the machine.
+An off-work countdown for the DeepSeek Harness Web UI. A pill under the message composer counts down to the end of the workday (default 09:00–18:00), with a thin progress bar for the day so far. When the end time arrives it switches to an overtime timer and plays a fireworks animation across the DSH window — scope (whole window / conversation), density (low / normal / high / max) and duration (3 / 6 / 10 / 15 s) are configurable in the pill's settings dialog, which also has a preview button. Weekends just say "Weekend". Click the pill to set your own hours — the setting lives in the browser's `localStorage` (`dsh.offwork-countdown.settings.v1`) and never leaves the machine.
 
 ```sh
 dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown
