@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 1,
+  "bundle": "dsh-scher",
+  "note": "每个模块对应 Scher bundle patch 里的一行 Loader 行；选择性安装 = 用 profile 的 cordis.patch.yml 给未选中的行加 disabled: true。scripts/select-modules.mjs 会读取本清单、提示相互依赖，并维护 profile 里的选中块。",
+  "modules": [
+    {
+      "id": "color-style",
+      "row": "color-style",
+      "package": "dsh-color-style",
+      "version": "0.6.0",
+      "directory": "plugins/dsh-color-style",
+      "title": {
+        "zh": "配色方案 + 完成时闪烁任务栏",
+        "en": "Colour schemes + taskbar flash"
+      },
+      "summary": {
+        "zh": "十套 Markdown 阅读配色，控制整窗背景、正文排版与侧栏主区；Host 半边在会话跑完而窗口不在前台时闪烁 Windows 任务栏图标。",
+        "en": "Ten reading palettes for the whole window and rendered Markdown, plus a Windows taskbar flash when a Session finishes out of focus."
+      },
+      "sizeMB": 0.2,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": [],
+      "external": [],
+      "notes": {
+        "zh": "任务栏闪烁仅 Windows、依赖系统 PowerShell；配色与闪烁可以分别关（闪烁在 config.taskbarFlash 下，enabled: false 即可关闭）。",
+        "en": "The taskbar flash is Windows-only and uses the system PowerShell; palettes and the flash switch independently (config.taskbarFlash.enabled)."
+      }
+    },
+    {
+      "id": "ws-recency",
+      "row": "ws-recency",
+      "package": "dsh-ws-recency",
+      "version": "0.27.1",
+      "directory": "plugins/dsh-ws-recency",
+      "title": {
+        "zh": "工作区最近顺序侧栏",
+        "en": "Workspace recency sidebar"
+      },
+      "summary": {
+        "zh": "侧栏工作区按最近活跃排序、拖动/图钉整组置顶；过期历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索。",
+        "en": "Workspaces ordered by latest activity with whole-workspace pinning, folded history, archive and trash, per-session token stats, moving sessions, handoff, and content search."
+      },
+      "sizeMB": 0.34,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": [],
+      "external": [],
+      "notes": {
+        "zh": "会接管左侧工作区会话栏；与 dsh-better-sidebar（右侧栏）互不冲突。",
+        "en": "Owns the left workspace/session column; independent of the right sidebar."
+      }
+    },
+    {
+      "id": "better-sidebar",
+      "row": "better-sidebar",
+      "package": "dsh-better-sidebar",
+      "version": "0.32.0",
+      "directory": "plugins/dsh-better-sidebar",
+      "title": {
+        "zh": "右侧栏",
+        "en": "Better sidebar"
+      },
+      "summary": {
+        "zh": "右侧栏：文件树、编辑器、Git 变更、任务、侧边对话，按会话隔离；并向其它插件提供注册侧栏标签页的服务。",
+        "en": "Right sidebar with file tree, editor, Git changes, tasks and side chat, isolated per conversation; also exposes the tab-registration service other plugins use."
+      },
+      "sizeMB": 12.27,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": [],
+      "external": [],
+      "notes": {
+        "zh": "安装体积最大（约 12 MB 客户端产物）。dsh-remote 装在一起时会把远程资源管理器与终端注册进来。",
+        "en": "Largest client artifact (~12 MB). With dsh-remote installed it receives the remote explorer and terminal tabs."
+      }
+    },
+    {
+      "id": "remote",
+      "row": "dsh-remote",
+      "package": "dsh-remote",
+      "version": "1.1.2",
+      "directory": "plugins/dsh-remote",
+      "title": {
+        "zh": "远程工作区",
+        "en": "Remote workspaces"
+      },
+      "summary": {
+        "zh": "SSH 远程工作区：远程终端、文件浏览与搜索、Git diff、X11 转发、macOS 主机支持，并提供远端改码/构建/测试的 Agent 工具。",
+        "en": "SSH remote workspaces: remote terminals, file browsing and search, Git diffs, X11 forwarding, macOS hosts, and workspace-bound Agent tools."
+      },
+      "sizeMB": 1.52,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": ["better-sidebar"],
+      "recommendsWhy": {
+        "better-sidebar": "远程资源管理器、远程文件与终端会注册进右侧栏；没有右侧栏时只能用 DSH 原生侧栏。"
+      },
+      "external": [
+        {
+          "name": "ssh-hosts",
+          "zh": "至少一台可通过 SSH 连上的远程主机（密码或密钥，X11 转发还需要远端装好 X 客户端并设置 DISPLAY）。",
+          "en": "At least one SSH-reachable host (password or key; X11 forwarding also needs an X client and DISPLAY on the remote side)."
+        }
+      ],
+      "notes": {
+        "zh": "推荐与「右侧栏」一起安装：远程资源管理器、文件与终端会注册进右侧栏；只装 remote 也能用 DSH 原生侧栏。",
+        "en": "Recommended together with Better sidebar: the remote explorer, files and terminals register into it. Without it, the native DSH sidebar still works."
+      }
+    },
+    {
+      "id": "countdown",
+      "row": "dsh-offwork-countdown",
+      "package": "dsh-offwork-countdown",
+      "version": "0.1.0",
+      "directory": "plugins/dsh-offwork-countdown",
+      "title": {
+        "zh": "下班倒计时",
+        "en": "Off-work countdown"
+      },
+      "summary": {
+        "zh": "输入框下方的下班倒计时胶囊，到点后转成加班计时；时间在胶囊里设置。",
+        "en": "A countdown pill under the composer, turning into an overtime timer after the end time; the schedule is set in the pill."
+      },
+      "sizeMB": 0.03,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": [],
+      "external": [],
+      "notes": {
+        "zh": "无依赖，可单独安装。",
+        "en": "No dependencies; safe to install alone."
+      }
+    },
+    {
+      "id": "system-monitor",
+      "row": "system-monitor",
+      "package": "dsh-system-monitor",
+      "version": "0.1.0",
+      "directory": "plugins/dsh-system-monitor",
+      "title": {
+        "zh": "系统监控",
+        "en": "System monitor"
+      },
+      "summary": {
+        "zh": "dock 里的 CPU／内存／显卡／显存进度条；在 DSH Host 进程采样，因此显示的始终是会话真正所在的那台主机。",
+        "en": "CPU, memory, GPU and VRAM bars in the dock, sampled in the DSH Host process so they describe the machine the session actually lives on."
+      },
+      "sizeMB": 0.06,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": ["remote"],
+      "recommendsWhy": {
+        "remote": "要监控远程工作区所在主机，需要 dsh-remote 提供的远程会话；只装本模块只看本机。"
+      },
+      "external": [],
+      "notes": {
+        "zh": "看本机时无需任何依赖；要监控远程工作区所在主机，需要同时装「远程工作区」。",
+        "en": "Works standalone for the local machine; monitoring a remote workspace's host needs Remote workspaces installed."
+      }
+    },
+    {
+      "id": "global-todo",
+      "row": "global-todo",
+      "package": "dsh-global-todo",
+      "version": "0.23.2",
+      "directory": "plugins/dsh-global-todo",
+      "title": {
+        "zh": "全局待办",
+        "en": "Global todos"
+      },
+      "summary": {
+        "zh": "跨会话待办清单（可注册到侧栏）：Agent 报「完成」只进待确认、人点头才算数；支持步骤计划、文档与地址、交给会话继续做、多机同步。",
+        "en": "Cross-session todo list (sidebar panel available): an agent's done only reaches Needs review until a person confirms; steps, links, hand-off to a conversation, multi-machine sync."
+      },
+      "sizeMB": 0.81,
+      "defaultSelected": true,
+      "requires": [],
+      "recommends": [],
+      "external": [],
+      "notes": {
+        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。",
+        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default."
+      }
+    },
+    {
+      "id": "im",
+      "row": "xmanrui-dsh-im",
+      "package": "@xmanrui/dsh-im",
+      "version": "5.10.0",
+      "directory": "plugins/dsh-im",
+      "title": {
+        "zh": "IM 机器人",
+        "en": "IM bots"
+      },
+      "summary": {
+        "zh": "把微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH。",
+        "en": "Connect WeChat, Feishu, WeCom, DingTalk, QQ, Telegram, WhatsApp, Slack, Discord and Matrix to DSH."
+      },
+      "sizeMB": 22.0,
+      "defaultSelected": false,
+      "requires": [],
+      "recommends": [],
+      "external": [
+        {
+          "name": "im-platforms",
+          "zh": "每个要用到平台自己的机器人凭据（token／应用 ID 与密钥／扫码登录），以及能访问该平台服务器的网络。",
+          "en": "Bot credentials for each platform you actually use (tokens, app id/secret, QR login) and network access to those platforms."
+        }
+      ],
+      "notes": {
+        "zh": "体积最大的模块（约 22 MB 代码 + 40 MB 运行时依赖）；不用 IM 就别装。配置与凭据存 $DSH_HOME/im。",
+        "en": "The heaviest module (~22 MB code + 40 MB runtime dependencies); skip it if you do not use IM. Settings and credentials live in $DSH_HOME/im."
+      }
+    },
+    {
+      "id": "comfyui",
+      "row": "comfyui-workspace",
+      "package": "dsh-comfyui-workspace",
+      "version": "0.7.0",
+      "directory": "plugins/dsh-comfyui-workspace",
+      "title": {
+        "zh": "ComfyUI 简易工作台",
+        "en": "ComfyUI workbench"
+      },
+      "summary": {
+        "zh": "导入 ComfyUI 工作流、卡片式调参、跑图/跑视频，并归档每次运行的参数与种子。",
+        "en": "Import ComfyUI workflows, tune them as cards, run image/video jobs, and archive each run's parameters and seed."
+      },
+      "sizeMB": 0.31,
+      "defaultSelected": false,
+      "requires": [],
+      "recommends": [],
+      "external": [
+        {
+          "name": "comfyui-server",
+          "zh": "一个可访问的 ComfyUI 服务（默认 http://127.0.0.1:8188）；没有它面板能打开但跑不了任务。",
+          "en": "A reachable ComfyUI server (default http://127.0.0.1:8188); without it the panel opens but runs fail."
+        }
+      ],
+      "notes": {
+        "zh": "插件本身很轻；真正的成本是外部 ComfyUI 服务与模型文件。",
+        "en": "The plugin is light; the real cost is the external ComfyUI server and its models."
+      }
+    }
+  ]
+}

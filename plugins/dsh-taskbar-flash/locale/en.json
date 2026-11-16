@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Taskbar flash on finish",
-    "description": "Flashes the DSH icon in the Windows taskbar when a Session finishes a turn while the DSH window is not focused, so a reply that arrived in the background is noticed. Focusing the window stops the flash; sub-agent work and replies the user is already watching stay quiet."
-  }
-}

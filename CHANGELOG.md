@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-11-16
+
+- **任务栏闪烁并入 `dsh-color-style` 0.6.0**：删除独立的 `dsh-taskbar-flash` 插件与它的行，
+  闪烁逻辑改由配色方案的 Host 半边负责（`config.taskbarFlash`）。行数回到 9，配色与闪烁
+  可分别关闭；`dsh-color-style` 仓库同步更新（0.6.0，新增 10 项单元测试）。
+- **按模块安装**：新增 [modules.json](modules.json) 模块目录（id、行 id、版本、体积、
+  相互依赖与外部前提）和 `scripts/select-modules.mjs` 选择器。
+  - `list` / `status` / `apply --modules …`：把未选中的行写成 profile 里的 `disabled: true`，
+    只维护一段带标记的覆盖块，不动用户其它覆盖。
+  - README 新增「从 GitHub 自主安装（给 DSH / Agent 的流程）」：安装时先 `enabled: false`
+    落依赖，然后**逐条询问用户**要哪些模块，并对相互依赖（remote ↔ better-sidebar、
+    system-monitor ↔ remote）与外部前提（ComfyUI 服务、IM 平台凭据、仅 Windows 的闪烁）
+    重点提醒，最后再启用组合包。
 ## 0.2.0 — 2026-11-16
 
 - **新增 `dsh-taskbar-flash 0.1.0`**（自研，Host-only）：会话跑完一轮、且 DSH 桌面窗口

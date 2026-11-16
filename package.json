@@ -1,7 +1,7 @@
 {
   "name": "dsh-scher",
-  "version": "0.2.0",
-  "description": "Scher 个人插件整合包：工作区侧栏、配色方案、右侧栏、远程工作区、下班倒计时、系统监控、全局待办、IM 机器人、ComfyUI 工作台，以及会话完成时的任务栏闪烁提醒，一次安装全部到位。",
+  "version": "0.3.0",
+  "description": "Scher 个人插件整合包：工作区侧栏、配色方案（含完成时闪烁任务栏）、右侧栏、远程工作区、下班倒计时、系统监控、全局待办、IM 机器人、ComfyUI 工作台；安装时可逐模块选择要哪些。",
   "license": "MIT",
   "type": "module",
   "icon": "./icon/icon-256.png",
@@ -16,13 +16,36 @@
   },
   "files": [
     "cordis.patch.yml",
+    "modules.json",
+    "scripts",
     "locale/*.json",
     "icon",
     "plugins",
     "README.md",
+    "INSTALL.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "ws": "^8.22.1",
+    "yaml": "^2.9.1",
+    "iconv-lite": "^0.7.3",
+    "ssh2": "^1.17.0",
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "@deepseek-ai/cosmokit": "~1.9.0",
+    "@standard-schema/spec": "^1.1.0",
+    "sharp": "0.35.5",
+    "dingtalk-stream": "2.1.4",
+    "imapflow": "^2.11.0",
+    "mailparser": "^3.14.2",
+    "nodemailer": "^10.3.1",
+    "qrcode": "1.5.4",
+    "undici": "7.30.1",
+    "@matrix-org/olm": "3.2.15",
+    "@tencent-connect/qqbot-connector": "1.2.0",
+    "@tencent-connect/qqbot-nodejs": "1.0.4",
+    "@wecom/aibot-node-sdk": "1.0.7"
+  },
   "dsh": {
     "manifestVersion": 1,
     "bundle": {

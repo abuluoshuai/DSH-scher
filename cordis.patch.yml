@@ -13,13 +13,26 @@
 # 行 id 与各插件单独发布时保持一致，profile 的 cordis.patch.yml 仍可按这些 id
 # 覆盖 config（config 整体替换、不深合并）：
 #   color-style / global-todo / dsh-offwork-countdown / better-sidebar /
-#   ws-recency / dsh-remote / system-monitor
+#   ws-recency / dsh-remote / system-monitor / xmanrui-dsh-im / comfyui-workspace
 #
 # 行顺序沿用整合前 profile 里的 bundle 顺序：better-sidebar 在 dsh-remote 之前，
 # 后者启动时按服务发现挂接右侧栏标签页。
 - insert:
-    # ── 配色方案（dsh-color-style 0.5.0）────────────────────────────────────
-    # 纯前端插件：Host 行只为让 Client 注册表把 ./client.js 送进浏览器。
+    # ── 配色方案 + 完成时闪烁任务栏（dsh-color-style 0.6.0）─────────────────
+    # Client 半边是十套配色；Host 半边负责「根会话跑完一轮、窗口不在前台时
+    # 闪烁 Windows 任务栏」。闪烁选项在 config.taskbarFlash 下（config 整体替换，
+    # 覆盖时只写需要的键，其余回落默认值）：
+    #   - id: color-style
+    #     config:
+    #       taskbarFlash:
+    #         enabled: true
+    #         ignoreSubagents: true
+    #         onlyWhenUnfocused: true
+    #         flashCount: 0
+    #         cooldownMs: 1500
+    #         processName: DeepSeek Harness
+    #         powerShellCommand: powershell.exe
+    #         log: true
     - id: color-style
       name: './plugins/dsh-color-style/lib/index.js'
 
@@ -73,14 +86,6 @@
       config:
         intervalMs: 2000
         gpuCacheMs: 1500
-
-    # ── 完成时闪烁任务栏（dsh-taskbar-flash 0.1.0）──────────────────────────
-    # 根会话跑完一轮、且 DSH 窗口不在前台时，闪烁 Windows 任务栏图标提醒；
-    # 窗口在前台不闪，子代理完成默认忽略。config 省略即用默认值：
-    #   enabled / ignoreSubagents / onlyWhenUnfocused / flashCount /
-    #   cooldownMs / processName / powerShellCommand / log
-    - id: taskbar-flash
-      name: './plugins/dsh-taskbar-flash/lib/index.js'
 
     # ── IM 机器人（@xmanrui/dsh-im 5.10.0）─────────────────────────────────
     # 微信 / 飞书 / 企业微信 / 钉钉 / QQ / Telegram / WhatsApp / Slack /
