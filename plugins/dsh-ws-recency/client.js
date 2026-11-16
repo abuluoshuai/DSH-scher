@@ -314,6 +314,17 @@
           ".wsr-step{width:24px;height:24px;border-radius:6px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1}",
           ".wsr-input{width:48px;height:24px;text-align:center;border-radius:6px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;font-size:13px}",
           ".wsr-exempt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);margin-left:8px}",
+          ".wsr-history{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;box-sizing:border-box;padding:14px 20px 0;gap:10px;color:var(--dsw-alias-label-primary)}",
+          ".wsr-history-head{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}",
+          ".wsr-history-title{font-size:14px;font-weight:600;line-height:22px}",
+          ".wsr-history-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-history-list{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 28px;scrollbar-gutter:stable}",
+          ".wsr-history-row{display:flex;align-items:flex-start;justify-content:flex-start;gap:8px}",
+          ".wsr-history-index{flex:none;min-width:18px;text-align:right;font-size:11px;line-height:22px;color:var(--dsw-alias-label-tertiary)}",
+          ".wsr-history-bubble{max-width:min(78%,720px);box-sizing:border-box;padding:8px 12px;border-radius:12px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l2);font-size:13px;line-height:22px;cursor:pointer;transition:border-color .12s,background-color .12s}",
+          ".wsr-history-bubble:hover{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover)}",
+          ".wsr-history-text{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}",
+          ".wsr-history-empty{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:22px;padding:28px 0;text-align:center}",
         ].join("");
 
         var ZH = {
@@ -412,6 +423,12 @@
           "search.failed": "搜索失败：",
           "search.you": "你",
           "search.assistant": "助手",
+          "history.tab": "历史",
+          "history.title": "历史提问",
+          "history.summary": "共 {count} 条提问",
+          "history.empty": "这个会话还没有提问。",
+          "history.attachment": "附件",
+          "history.jump": "跳回原消息",
           "search.turn": "第 {n} 轮",
           "ui.reload": "刷新界面",
           "ui.refresh": "刷新列表",
@@ -574,6 +591,12 @@
           "search.failed": "Search failed: ",
           "search.you": "You",
           "search.assistant": "Assistant",
+          "history.tab": "History",
+          "history.title": "History",
+          "history.summary": "{count} question(s)",
+          "history.empty": "No questions in this session yet.",
+          "history.attachment": "attachment",
+          "history.jump": "Jump to this message",
           "search.turn": "turn {n}",
           "ui.reload": "Reload UI",
           "ui.refresh": "Refresh",
@@ -3647,6 +3670,138 @@
           });
         }
 
+        /* ------------------------------------------------------------------ */
+        /* 历史：本会话里问过的所有问题，按顺序排成一列气泡。 */
+        /* ------------------------------------------------------------------ */
+
+        var HISTORY_KINDS = { user: true, steering: true };
+
+        function historyTextOf(content, translate) {
+          if (typeof content === "string") return content.trim();
+          if (!Array.isArray(content)) return "";
+          var parts = [];
+          var extras = 0;
+          for (var i = 0; i < content.length; i += 1) {
+            var part = content[i];
+            if (part === null || part === undefined) continue;
+            if (part.type === "text" && typeof part.text === "string" && part.text !== "") parts.push(part.text);
+            else if (part.type !== undefined) extras += 1;
+          }
+          var text = parts.join("\n").trim();
+          if (extras > 0) {
+            var mark = "[" + translate("history.attachment") + "]";
+            text = text === "" ? mark : text + "\n" + mark;
+          }
+          return text;
+        }
+
+        /** Read-only list of every user message in this Session, oldest first. */
+        /** The turn a chat node belongs to, when the node carries one. */
+        function historyTurnOf(node) {
+          var location = node.location;
+          if (location === null || location === undefined) return null;
+          if (location.kind !== "turn" && location.kind !== "step") return null;
+          var turn = location.turn && location.turn.turn;
+          return typeof turn === "number" && isFinite(turn) ? turn : null;
+        }
+
+        /**
+         * Jump back to the original message: activate the Chat view, wait for
+         * its row to mount, then centre and flash it. If the exact row is not
+         * loaded yet, fall back to revealTurn, which walks older history until
+         * the turn exists.
+         */
+        function jumpToHistoryNode(props, nodeKey, turn) {
+          var openView = typeof props.openView === "function" ? props.openView : null;
+          if (openView !== null) {
+            try { openView("chat", nodeKey); } catch (error) { /* older host */ }
+          }
+          if (typeof props.completeViewRequest === "function") {
+            try { props.completeViewRequest(); } catch (error) { /* nothing to clear */ }
+          }
+          var tries = 0;
+          var tick = function () {
+            tries += 1;
+            var row = null;
+            var rows = document.querySelectorAll("[data-chat-node-key]");
+            for (var i = 0; i < rows.length; i += 1) {
+              if (rows[i].getAttribute("data-chat-node-key") === nodeKey) { row = rows[i]; break; }
+            }
+            if (row !== null) { flashTurnRow(row); return; }
+            if (tries < 40) { window.setTimeout(tick, 50); return; }
+            if (turn !== null && props.sessionId !== undefined) revealTurn(props.sessionId, turn);
+          };
+          window.setTimeout(tick, 0);
+        }
+
+        /** Read-only list of every user message in this Session, oldest first. */
+        function HistoryView(props) {
+          var translate = typeof props.t === "function" ? props.t : t;
+          var useChat = typeof props.useChat === "function" ? props.useChat : null;
+          var snapshot = useChat === null ? null : useChat(function (state) { return state; });
+          var items = [];
+          if (snapshot !== null && snapshot !== undefined && Array.isArray(snapshot.order) && snapshot.nodes !== undefined && typeof snapshot.nodes.get === "function") {
+            for (var i = 0; i < snapshot.order.length; i += 1) {
+              var key = snapshot.order[i];
+              var node = snapshot.nodes.get(key);
+              if (node === null || node === undefined || HISTORY_KINDS[node.kind] !== true) continue;
+              var data = node.data || {};
+              var text = historyTextOf(data.content, translate);
+              if (text === "") continue;
+              items.push({
+                key: key,
+                nodeKey: typeof node.key === "string" ? node.key : key,
+                turn: historyTurnOf(node),
+                text: text,
+              });
+            }
+          }
+          var jump = function (item) {
+            jumpToHistoryNode(props, item.nodeKey, item.turn);
+          };
+          return h(
+            "div",
+            { className: "wsr-history", "data-wsr-history": "" },
+            h(
+              "div",
+              { className: "wsr-history-head" },
+              h("div", { className: "wsr-history-title" }, translate("history.title")),
+              h("div", { className: "wsr-history-sub" }, translate("history.summary", { count: items.length })),
+            ),
+            items.length === 0
+              ? h("div", { className: "wsr-history-empty" }, translate("history.empty"))
+              : h(
+                  "div",
+                  { className: "wsr-history-list" },
+                  items.map(function (item, index) {
+                    return h(
+                      "div",
+                      { className: "wsr-history-row", key: item.key },
+                      h("div", { className: "wsr-history-index" }, String(index + 1)),
+                      h(
+                        "div",
+                        {
+                          className: "wsr-history-bubble",
+                          role: "button",
+                          tabIndex: 0,
+                          title: translate("history.jump"),
+                          "data-wsr-history-jump": item.nodeKey,
+                          onClick: function () { jump(item); },
+                          onKeyDown: function (event) {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            jump(item);
+                          },
+                        },
+                        h("div", { className: "wsr-history-text" }, item.text),
+                      ),
+                    );
+                  }),
+                ),
+          );
+        }
+
+        
         function SearchPanelIcon(props) {
           var Icon = ui.IconSearchOutlineRegular;
           if (typeof Icon !== "function") return null;
@@ -4443,6 +4598,17 @@
               store: prefs,
               locale: NS,
             }, TrashMenuItem);
+          });
+
+          /* 历史 Tab：和「对话 / 轨迹 / 画廊」并排，列出本会话里问过的问题。 */
+          ctx.slots.inject("conversation.view", function () {
+            return ctx.slots.register({
+              name: "conversation.view",
+              id: "wsr-history",
+              order: 30,
+              locale: NS,
+              label: function () { return t("history.tab"); },
+            }, HistoryView);
           });
 
           ctx.effect(function () {

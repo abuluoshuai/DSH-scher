@@ -39,11 +39,11 @@
 
 | 插件 | 版本 | 上游 / 来源 | 在 Scher 里做的事 |
 | --- | --- | --- | --- |
-| `dsh-ws-recency` | 0.27.1 | [chyxhtc/dsh-ws-recency](https://github.com/chyxhtc/dsh-ws-recency) | 侧栏工作区按最近活跃排序；**本地定制**：拖动或表头图钉把整个工作区固定顶部，去掉颜色标记与「全局置顶」区；保留过期历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索 |
-| `dsh-color-style` | 0.6.0 | [abuluoshuai/dsh-color-style](https://github.com/abuluoshuai/DSH-color-style) | 十种 Markdown 阅读配色：整窗背景、正文排版、左上角主题色；**Host 半边**在会话跑完一轮、窗口不在前台时闪烁 Windows 任务栏图标（可单独关） |
+| `dsh-ws-recency` | 0.28.0 | [chyxhtc/dsh-ws-recency](https://github.com/chyxhtc/dsh-ws-recency) | 侧栏工作区按最近活跃排序；**本地定制**：拖动或表头图钉把整个工作区固定顶部，去掉颜色标记与「全局置顶」区；保留过期历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索；新增「历史」Tab：按顺序列出本会话全部提问，点击气泡跳回原消息 |
+| `dsh-color-style` | 0.7.0 | [abuluoshuai/dsh-color-style](https://github.com/abuluoshuai/DSH-color-style) | 十种 Markdown 阅读配色：整窗背景、正文排版、左上角主题色；对话中历史用户消息气泡的文字颜色与背景色可单独自定义；**Host 半边**在会话跑完一轮、窗口不在前台时闪烁 Windows 任务栏图标（可单独关） |
 | `dsh-better-sidebar` | 0.32.0 | [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 右侧栏：文件树、编辑器、变更、任务、侧边对话，每个会话独立 |
 | `dsh-remote` | 1.1.2 | [flymysql/dsh-remote](https://github.com/flymysql/dsh-remote) | SSH 远程工作区、远程终端、远程文件浏览与搜索；**本地定制**：注册进右侧栏、X11 转发、macOS 主机支持、远程文件树 VS Code 风格图标 |
-| `dsh-offwork-countdown` | 0.2.0 | [ZydFirst/dsh-offwork-countdown](https://github.com/ZydFirst/dsh-offwork-countdown) | 输入框下方的下班倒计时胶囊，到点转为加班计时；**本地定制**：到点在窗口上放一段可定制烟花（范围/密度/时长，设置里可预览） |
+| `dsh-offwork-countdown` | 0.2.1 | [ZydFirst/dsh-offwork-countdown](https://github.com/ZydFirst/dsh-offwork-countdown) | 输入框下方的下班倒计时胶囊，到点转为加班计时；**本地定制**：到点在窗口上放一段可定制烟花（范围/密度/时长，设置里可预览） |
 | `dsh-system-monitor` | 0.1.0 | 自研（本仓库） | dock 里的 CPU／内存／显卡／显存进度条；指标在 DSH Host 进程采集，因此本地与远程工作区显示的都是会话真正所在的主机；支持 Windows/Linux/macOS 与 NVIDIA/AMD/Apple 显卡 |
 | `dsh-global-todo` | 0.23.2 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、交给会话继续做、多机同步 |
 | `@xmanrui/dsh-im` | 5.10.0 | [xmanrui/dsh-im](https://github.com/xmanrui/dsh-im) | IM 机器人：微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH |
@@ -160,7 +160,7 @@ DSH-scher/
 
 | 行 id | 插件 | 可配置项 |
 | --- | --- | --- |
-| `color-style` | 配色方案 + 任务栏闪烁 | `taskbarFlash.enabled`、`.ignoreSubagents`、`.onlyWhenUnfocused`、`.flashCount`、`.cooldownMs`、`.processName`、`.powerShellCommand`、`.log` |
+| `color-style` | 配色方案 + 任务栏闪烁 | `taskbarFlash.enabled`、`.ignoreSubagents`、`.onlyWhenUnfocused`、`.flashCount`、`.cooldownMs`、`.processName`、`.powerShellCommand`、`.log`（用户消息气泡颜色走浏览器 localStorage，不在行 config 里） |
 | `global-todo` | 全局待办 | `storePath`、`dispatchDir`、`activityLimit`、`requireExistingFiles`、`guidance`、`toolGroups`、`browseRoot`、`sync.dir`、`sync.intervalMinutes` |
 | `dsh-offwork-countdown` | 下班倒计时 | 无（时间与烟花设置在胶囊里改） |
 | `better-sidebar` | 右侧栏 | 无（在「设置 → 侧边卡片」里改） |
@@ -201,7 +201,7 @@ DSH-scher/
   `disabled: true`）。
 - `dsh-color-style` 的 Host 半边负责任务栏闪烁：仅 Windows，依赖系统 PowerShell；不想用时
   在 `config.taskbarFlash.enabled: false` 关掉，不影响配色。
-- `dsh-offwork-countdown` 的基线是整合前的 0.1.0，加入本地「下班烟花」后版本记为 0.2.0；
+- `dsh-offwork-countdown` 的基线是整合前的 0.1.0，加入本地「下班烟花」与设置框修复后版本记为 0.2.1；
   上游此后的 0.1.1 窄屏换行修复没有并入，需要时可手动合并（注意保留 client.js 的烟花改动）。
 - `dsh-im` 落盘的是已安装的 5.10.0；它的 `dsh.compatibility` 声明的仍是旧 DSH 兼容范围，
   但当前 DSH 版本下实际运行正常（整合包不检查子包兼容声明）。

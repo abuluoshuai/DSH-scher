@@ -383,6 +383,9 @@ window.__ModuleLoader__.load({
       const t = props.t
       const current = useStore()
       const [draft, setDraft] = React.useState(current.settings)
+      /* Older drafts (or a time-input change racing the state update) may miss
+         the nested fireworks block; never let that crash the dialog. */
+      const fireworksDraft = draft.fireworks || DEFAULT_SETTINGS.fireworks
 
       React.useEffect(
         function () {
@@ -460,7 +463,7 @@ window.__ModuleLoader__.load({
                 onChange: function (event) {
                   const value = event.target.value
                   setDraft(function (previous) {
-                    return { start: value, end: previous.end }
+                    return Object.assign({}, previous, { start: value })
                   })
                 },
               }),
@@ -477,7 +480,7 @@ window.__ModuleLoader__.load({
                 onChange: function (event) {
                   const value = event.target.value
                   setDraft(function (previous) {
-                    return { start: previous.start, end: value }
+                    return Object.assign({}, previous, { end: value })
                   })
                 },
               }),
@@ -494,7 +497,7 @@ window.__ModuleLoader__.load({
               h('input', {
                 type: 'checkbox',
                 className: 'owc-check',
-                checked: draft.fireworks.enabled,
+                checked: fireworksDraft.enabled,
                 onChange: function (event) {
                   const checked = !!event.target.checked
                   setDraft(function (previous) {
@@ -513,7 +516,7 @@ window.__ModuleLoader__.load({
                 'select',
                 {
                   className: 'owc-select',
-                  value: draft.fireworks.scope,
+                  value: fireworksDraft.scope,
                   onChange: function (event) {
                     const scope = event.target.value
                     setDraft(function (previous) {
@@ -535,7 +538,7 @@ window.__ModuleLoader__.load({
                 'select',
                 {
                   className: 'owc-select',
-                  value: draft.fireworks.density,
+                  value: fireworksDraft.density,
                   onChange: function (event) {
                     const density = event.target.value
                     setDraft(function (previous) {
@@ -559,7 +562,7 @@ window.__ModuleLoader__.load({
                 'select',
                 {
                   className: 'owc-select',
-                  value: draft.fireworks.duration,
+                  value: fireworksDraft.duration,
                   onChange: function (event) {
                     const duration = event.target.value
                     setDraft(function (previous) {

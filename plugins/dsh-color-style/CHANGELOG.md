@@ -1,5 +1,14 @@
 # 更新记录
 
+## 0.7.0 — 用户消息区域自定义颜色
+
+- 设置 → 配色方案 页新增「用户消息区域」：可单独指定对话里历史用户消息气泡的背景色和
+  文字颜色，「跟随主题」恢复默认（跟随当前方案）；颜色保存本机 localStorage
+  （`dsh.color-style.userMessages.v1`），选色即时生效；取色器旁另有十六进制输入框，
+  方便直接粘贴 `#rrggbb`（也接受省略 # 与三位简写），与取色器双向同步。
+- 实现为插件自有样式表，直接作用于宿主渲染用户消息的 `[data-message-bubble]` 气泡
+  元素，不修改宿主 DOM 结构；不影响输入框与助手消息。
+
 ## 0.6.0 — 完成时闪烁任务栏
 
 - Host 半边新增能力：根会话跑完一轮、而 DSH 桌面窗口不在前台时，闪烁 Windows 任务栏上的
@@ -11,6 +20,8 @@
     `flashCount` / `cooldownMs` / `processName` / `powerShellCommand` / `log`）；
     排查日志 `$DSH_HOME/taskbar-flash/attention.log`。
   - 新增 10 项单元测试（事件、子代理过滤、合并、释放、平台与开关）。
+  - 修正 `FlashWindowEx` 的返回值语义：它报告调用前窗口是否活动，不是调用成败；JSON 输出改为
+    `ok: true` + `wasActive`，不影响实际闪烁。
 
 ## 0.5.0 — 文档版本
 

@@ -7,15 +7,15 @@
       "id": "color-style",
       "row": "color-style",
       "package": "dsh-color-style",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "directory": "plugins/dsh-color-style",
       "title": {
         "zh": "配色方案 + 完成时闪烁任务栏",
         "en": "Colour schemes + taskbar flash"
       },
       "summary": {
-        "zh": "十套 Markdown 阅读配色，控制整窗背景、正文排版与侧栏主区；Host 半边在会话跑完而窗口不在前台时闪烁 Windows 任务栏图标。",
-        "en": "Ten reading palettes for the whole window and rendered Markdown, plus a Windows taskbar flash when a Session finishes out of focus."
+        "zh": "十套 Markdown 阅读配色，控制整窗背景、正文排版与侧栏主区；对话中历史用户消息气泡的文字颜色与背景色可以单独自定义；Host 半边在会话跑完而窗口不在前台时闪烁 Windows 任务栏图标。",
+        "en": "Ten reading palettes for the whole window and rendered Markdown, custom text/background colours for the historical user-message bubbles, plus a Windows taskbar flash when a Session finishes out of focus."
       },
       "sizeMB": 0.2,
       "defaultSelected": true,
@@ -31,15 +31,15 @@
       "id": "ws-recency",
       "row": "ws-recency",
       "package": "dsh-ws-recency",
-      "version": "0.27.1",
+      "version": "0.28.0",
       "directory": "plugins/dsh-ws-recency",
       "title": {
         "zh": "工作区最近顺序侧栏",
         "en": "Workspace recency sidebar"
       },
       "summary": {
-        "zh": "侧栏工作区按最近活跃排序、拖动/图钉整组置顶；过期历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索。",
-        "en": "Workspaces ordered by latest activity with whole-workspace pinning, folded history, archive and trash, per-session token stats, moving sessions, handoff, and content search."
+        "zh": "侧栏工作区按最近活跃排序、拖动/图钉置顶、历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索；**本地定制**：新增「历史」Tab，按顺序把本会话全部用户提问列成可点击气泡，点一下跳回原消息。",
+        "en": "Sidebar workspace recency ordering, pinning, folding, archive/trash, token stats, move/handoff, and content search; locally adds a History view listing every user question as bubbles that jump back to the original message."
       },
       "sizeMB": 0.34,
       "defaultSelected": true,
@@ -114,7 +114,7 @@
       "id": "countdown",
       "row": "dsh-offwork-countdown",
       "package": "dsh-offwork-countdown",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "directory": "plugins/dsh-offwork-countdown",
       "title": {
         "zh": "下班倒计时",
