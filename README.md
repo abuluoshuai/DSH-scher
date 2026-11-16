@@ -15,7 +15,7 @@
 
 # 这是什么
 
-把 9 个日常插件收进同一个项目、同一个 bundle：在 DeepSeek Harness 里安装一次，Plugins 页只多出一个 **Scher** 条目，它下面挂着 9 个插件行，行为与分别安装这些插件时一致；从 GitHub 自主安装时按 [modules.json](modules.json) 逐个询问用户要哪些模块。
+把 10 个日常插件收进同一个项目、同一个 bundle：在 DeepSeek Harness 里安装一次，Plugins 页只多出一个 **Scher** 条目，它下面挂着 10 个插件行，行为与分别安装这些插件时一致；从 GitHub 自主安装时按 [modules.json](modules.json) 逐个询问用户要哪些模块。
 
 **所有插件代码都是直接落盘的**——`plugins/` 里放的就是整合前正在运行的那一份（含本地定制），
 不通过 git clone / submodule 跟随上游。原因很简单：其中若干包（`dsh-ws-recency`、
@@ -27,7 +27,7 @@
 
 - `plugins/` 下每个插件都是完整、独立的包，原来的 `package.json`、`exports`、
   `dsh.client`、`locale`、`icon` 原样保留；
-- 根目录的 `cordis.patch.yml` 用相对路径行（`./plugins/<包名>/<入口>.js`）把 9 个 Host 行
+- 根目录的 `cordis.patch.yml` 用相对路径行（`./plugins/<包名>/<入口>.js`）把 10 个 Host 行
   插进 Loader；
 - Client 半边按「最近的 `package.json`」认定身份，所以每个插件继续用**自己原来的包名**
   注册客户端模块——槽位、locale、图标、`/plugins/<包名>/…` 资源路由都与单独安装时一样；
@@ -48,6 +48,7 @@
 | `dsh-global-todo` | 0.23.2 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、交给会话继续做、多机同步 |
 | `@xmanrui/dsh-im` | 5.10.0 | [xmanrui/dsh-im](https://github.com/xmanrui/dsh-im) | IM 机器人：微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH |
 | `dsh-comfyui-workspace` | 0.7.0 | 自研（本仓库） | ComfyUI 简易工作台：导入工作流、卡片式调参、跑图/跑视频、归档每次参数与种子 |
+| `dsh-feishu-notify` | 0.1.0 | 本仓库新增 | 本机任意根会话完成一轮时，用 dsh-im 的飞书机器人推送会话名 + 用户输入 + 最终 markdown 正文 |
 
 # 安装
 
@@ -55,7 +56,7 @@
 
 1. 打开 **Plugins** 页 → **Add plugin**，选择本目录 `DSH-scher`；
    或者让 Agent 用 `plugin_manager` `install_bundle` 指向本目录。
-2. 安装完成后，Plugins 页出现 **Scher** 组合包，展开可见 9 个插件行。
+2. 安装完成后，Plugins 页出现 **Scher** 组合包，展开可见 10 个插件行。
 3. 如果之前分别装过这些插件，请把原来那些组合包**停用**，避免同一个插件挂两份
    （客户端模块 id 会撞车）。
 
@@ -66,7 +67,7 @@
 > [INSTALL.md](INSTALL.md)。
 
 1. **先只落依赖、不挂载**：`plugin_manager` 的 `install_bundle`，`target` 指向本仓库（本地目录
-   或 GitHub 地址），`enabled: false`。这样不会先把 9 个模块全挂上再拆。
+   或 GitHub 地址），`enabled: false`。这样不会先把 10 个模块全挂上再拆。
 2. **读模块目录**：[modules.json](modules.json)，或运行
    `node scripts/select-modules.mjs list`（`--json` 供 Agent 解析）。把模块清单**逐条**问
    用户「这个需要吗？」——一次只问一个，附一句话说明和体积。
@@ -133,7 +134,7 @@ DSH-scher/
 ├── package.json          # bundle 清单：dsh.bundle.patch / engines / icon / locale
 ├── modules.json          # 模块目录：id / 行 id / 版本 / 体积 / 相互依赖与外部前提
 ├── scripts/              # select-modules.mjs：维护 profile 里的模块选择
-├── cordis.patch.yml      # 九个 Host 行的唯一配置层（相对路径行）
+├── cordis.patch.yml      # 十个 Host 行的唯一配置层（相对路径行）
 ├── pnpm-workspace.yaml   # plugins/* 的依赖工作区
 ├── locale/               # 组合包在 Plugins 页的标题与说明（en / zh）
 ├── icon/                 # 组合包图标（Scher）
@@ -156,7 +157,7 @@ DSH-scher/
 
 # 配置
 
-九个行 id 都可被 profile 的 `cordis.patch.yml` 按 id 覆盖（`config` 是整体替换，不深合并）：
+十个行 id 都可被 profile 的 `cordis.patch.yml` 按 id 覆盖（`config` 是整体替换，不深合并）：
 
 | 行 id | 插件 | 可配置项 |
 | --- | --- | --- |

@@ -1,0 +1,22 @@
+{
+  "name": "dsh-feishu-notify",
+  "version": "0.1.0",
+  "description": "Feishu completion push for DeepSeek Harness: when any root Session finishes a turn on this machine, send the session name, the user prompt and the final assistant markdown to Feishu through the dsh-im Feishu bot.",
+  "author": "abuluoshuai",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
