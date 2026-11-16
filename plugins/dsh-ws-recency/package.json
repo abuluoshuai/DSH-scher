@@ -1,7 +1,7 @@
 {
   "name": "dsh-ws-recency",
-  "version": "0.28.0",
-  "description": "Sidebar workspace management for DeepSeek Harness: workspace groups ordered by latest activity with a pin control or drag-to-pin for whole workspaces, stale history folded behind one control, session delete into a recoverable trash, archived sessions managed from the same trash panel, per-session token statistics with an argument/result split, moving a session to another workspace, handing the work over to a fresh session, a literal content search that jumps to the turn a word was said in, and a History view that lists every user question of the session as bubbles and jumps back to the original message.",
+  "version": "0.29.0",
+  "description": "Sidebar workspace management for DeepSeek Harness: workspace groups ordered by latest activity with a pin control or drag-to-pin for whole workspaces, stale history folded behind one control, session delete into a recoverable trash, archived sessions managed from the same trash panel, per-session token statistics with an argument/result split, moving a session to another workspace, handing the work over to a fresh session, a literal content search that jumps to the turn a word was said in, and a History view that reads the durable session log for every human prompt, lands on the most recent one, and jumps back to its turn.",
   "license": "MIT",
   "author": "chyxhtc",
   "repository": {

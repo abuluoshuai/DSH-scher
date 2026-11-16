@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 export const name = "ws-recency";
 
 /** Version marker reported by the health route. */
-export const HOST_VERSION = "0.27.1";
+export const HOST_VERSION = "0.29.0";
 
 /**
  * Exact routes the client half calls. Registered on the bare web server, so they
@@ -45,6 +45,7 @@ export const MOVE_SESSION_PATH = "/ws-recency/session-move";
 export const ADOPT_SESSION_PATH = "/ws-recency/session-adopt";
 export const TRASH_LIST_PATH = "/ws-recency/trash";
 export const SEARCH_CONTENT_PATH = "/ws-recency/search";
+export const USER_MESSAGES_PATH = "/ws-recency/user-messages";
 
 export const HANDOFF_PATH = "/ws-recency/handoff";
 
@@ -708,6 +709,72 @@ function extractSearchMessages(events) {
     });
   }
   return messages;
+}
+
+/**
+ * Every human message of one session, oldest first, decoded from the durable log.
+ *
+ * The chat view only holds a window of the transcript, so the History tab must
+ * not derive its list from that window: it asks the log instead. Turns follow
+ * `data.turn` when present and the running `turn/start` count otherwise, so a
+ * bubble can scroll the chat to the turn it came from.
+ */
+export async function userMessagesOf(ctx, sessionId) {
+  const events = await readSessionEvents(ctx, sessionId);
+  let turn = 0;
+  const messages = [];
+  for (const event of events) {
+    if (event === null || typeof event !== "object") continue;
+    if (event.type === "turn/start") {
+      turn += 1;
+      continue;
+    }
+    if (event.type !== "user/message") continue;
+    const data = event.data ?? {};
+    const content = data.message !== null && data.message !== undefined ? data.message.content : data.content;
+    let messageText = conversationText(content).trim();
+    if (messageText === "") continue;
+    if (messageText.length > SEARCH_MESSAGE_CAP) messageText = messageText.slice(0, SEARCH_MESSAGE_CAP);
+    const declared = Number(data.turn);
+    const source = data.source;
+    /* Only a message the human actually typed has source.kind "user". The other
+       "user/message" records are Host context injections (time, workspace
+       instructions, skill catalog, compaction checkpoints, policy notices). */
+    const sourceKind = source !== null && typeof source === "object" && typeof source.kind === "string" ? source.kind : "";
+    if (sourceKind !== "user") continue;
+    messages.push({
+      seq: Number.isSafeInteger(Number(event.seq)) ? Number(event.seq) : 0,
+      time: Number.isFinite(Number(event.time)) ? Number(event.time) : 0,
+      turn: Number.isSafeInteger(declared) ? declared : turn,
+      text: messageText,
+    });
+  }
+  messages.sort((left, right) => left.seq - right.seq);
+  return messages;
+}
+
+/** POST { sessionId } -> every user message of that session. */
+export async function handleUserMessagesRequest(ctx, req, res) {
+  if ((req.method ?? "POST").toUpperCase() !== "POST") {
+    sendJson(res, 405, { ok: false, error: "method not allowed" });
+    return;
+  }
+  if (!loopbackOrigin(req)) {
+    sendJson(res, 403, { ok: false, error: "origin not trusted" });
+    return;
+  }
+  try {
+    const body = await readJsonBody(req);
+    const sessionId = sessionIdFrom(req, body);
+    if (sessionId === "") {
+      sendJson(res, 400, { ok: false, error: "sessionId is required" });
+      return;
+    }
+    const messages = await userMessagesOf(ctx, sessionId);
+    sendJson(res, 200, { ok: true, messages });
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 function searchSnippet(text, needle) {
@@ -1997,6 +2064,14 @@ export function apply(ctx) {
           path: SEARCH_CONTENT_PATH,
           handler: (req, res) => handleSearchRequest(searchCtx, req, res),
         }), "ws-recency: search route");
+      });
+
+      webCtx.inject(["sessionPersistence"], (historyCtx) => {
+        webCtx.effect(() => server.register({
+          kind: "exact",
+          path: USER_MESSAGES_PATH,
+          handler: (req, res) => handleUserMessagesRequest(historyCtx, req, res),
+        }), "ws-recency: user messages route");
       });
 
       webCtx.inject(["sessionPersistence"], (handoffCtx) => {

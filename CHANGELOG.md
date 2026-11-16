@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 — 2026-11-17
+
+- **dsh-ws-recency 升到 0.29.0（本地定制）**：「历史」页改为读会话日志的完整版。
+  - Host 半边新增 `/ws-recency/user-messages`，直接解码会话 JSONL（`sessionPersistence`），
+    按顺序返回全部真人提问；系统注入消息（时间、工作区指令、技能目录、压缩检查点、策略通知）
+    按 `source.kind === "user"` 过滤掉。
+  - 历史页进入时默认滚到最底部（最近的提问），点击气泡按日志里的 turn 跳回对话并高亮；
+    不再依赖聊天窗口分页，老会话也能一次看全。
+  - README / locale / modules.json / package.json 同步。
+- Scher 版本 0.7.0。
+
 ## 0.6.0 — 2026-11-17
 
 - **dsh-color-style 升到 0.8.0**：任务栏闪烁扩展为「需要用户交互时也闪」。

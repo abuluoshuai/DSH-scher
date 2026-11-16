@@ -318,6 +318,12 @@
           ".wsr-history-head{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}",
           ".wsr-history-title{font-size:14px;font-weight:600;line-height:22px}",
           ".wsr-history-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
+
+          ".wsr-history-more{margin-left:auto;border:0;background:0 0;padding:2px 0;color:var(--dsw-alias-link);font:inherit;font-size:12px;line-height:18px;cursor:pointer}",
+
+          ".wsr-history-more:hover{text-decoration:underline}",
+
+          ".wsr-history-more:disabled{color:var(--dsw-alias-label-tertiary);cursor:default;text-decoration:none}",
           ".wsr-history-list{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 28px;scrollbar-gutter:stable}",
           ".wsr-history-row{display:flex;align-items:flex-start;justify-content:flex-start;gap:8px}",
           ".wsr-history-index{flex:none;min-width:18px;text-align:right;font-size:11px;line-height:22px;color:var(--dsw-alias-label-tertiary)}",
@@ -325,6 +331,7 @@
           ".wsr-history-bubble:hover{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover)}",
           ".wsr-history-text{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}",
           ".wsr-history-empty{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:22px;padding:28px 0;text-align:center}",
+          ".wsr-history-end{flex:0 0 1px;height:1px}",
         ].join("");
 
         var ZH = {
@@ -428,6 +435,11 @@
           "history.summary": "共 {count} 条提问",
           "history.empty": "这个会话还没有提问。",
           "history.attachment": "附件",
+          "history.loading": "正在读取会话日志…",
+          "history.failed": "读取会话日志失败，只显示了已加载的部分。",
+          "history.loadOlderBtn": "加载更早的提问",
+          "history.loadingOlder": "正在加载…",
+          "history.noMore": "已经是全部了",
           "history.jump": "跳回原消息",
           "search.turn": "第 {n} 轮",
           "ui.reload": "刷新界面",
@@ -596,6 +608,11 @@
           "history.summary": "{count} question(s)",
           "history.empty": "No questions in this session yet.",
           "history.attachment": "attachment",
+          "history.loading": "Reading the session log…",
+          "history.failed": "Could not read the session log; only the loaded part is shown.",
+          "history.loadOlderBtn": "Load earlier questions",
+          "history.loadingOlder": "Loading…",
+          "history.noMore": "All shown",
           "history.jump": "Jump to this message",
           "search.turn": "turn {n}",
           "ui.reload": "Reload UI",
@@ -3734,30 +3751,139 @@
           window.setTimeout(tick, 0);
         }
 
+        /** Ask the Host for every user message of this session (durable log). */
+        function historyPost(body) {
+          return fetch("/ws-recency/user-messages", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body || {}),
+          }).then(function (response) {
+            return response.text().then(function (text) {
+              var parsed = null;
+              try { parsed = JSON.parse(text); } catch (error) { parsed = null; }
+              return { status: response.status, text: text, json: parsed };
+            });
+          });
+        }
+
+        /**
+         * Jump back to the turn a bubble came from: activate Chat, then let the
+         * existing revealTurn loader scroll and flash the row (it also pages
+         * older history until the turn exists).
+         */
+        function jumpToHistoryTurn(props, turn) {
+          var openView = typeof props.openView === "function" ? props.openView : null;
+          if (openView !== null) {
+            try { openView("chat", ""); } catch (error) { /* older host */ }
+          }
+          if (typeof props.completeViewRequest === "function") {
+            try { props.completeViewRequest(); } catch (error) { /* nothing to clear */ }
+          }
+          if (typeof turn === "number" && isFinite(turn) && props.sessionId !== undefined) {
+            revealTurn(props.sessionId, turn);
+          }
+        }
+
+
         /** Read-only list of every user message in this Session, oldest first. */
         function HistoryView(props) {
           var translate = typeof props.t === "function" ? props.t : t;
+          var snapshot = null;
           var useChat = typeof props.useChat === "function" ? props.useChat : null;
-          var snapshot = useChat === null ? null : useChat(function (state) { return state; });
+          if (useChat !== null) snapshot = useChat(function (state) { return state; });
+          var fetchState = react.useState({ loading: true, failed: false, messages: [] });
+          var state = fetchState[0];
+          var setState = fetchState[1];
+          var listRef = react.useRef(null);
+          var endRef = react.useRef(null);
+          react.useEffect(function () {
+            var cancelled = false;
+            setState({ loading: true, failed: false, messages: [] });
+            historyPost({ sessionId: props.sessionId }).then(function (answer) {
+              if (cancelled) return;
+              var json = answer !== null && answer !== undefined ? answer.json : null;
+              if (json === null || json === undefined || json.ok !== true || !Array.isArray(json.messages)) {
+                setState({ loading: false, failed: true, messages: [] });
+                return;
+              }
+              setState({ loading: false, failed: false, messages: json.messages });
+            }).catch(function () {
+              if (!cancelled) setState({ loading: false, failed: true, messages: [] });
+            });
+            return function () { cancelled = true; };
+          }, [props.sessionId]);
           var items = [];
-          if (snapshot !== null && snapshot !== undefined && Array.isArray(snapshot.order) && snapshot.nodes !== undefined && typeof snapshot.nodes.get === "function") {
-            for (var i = 0; i < snapshot.order.length; i += 1) {
-              var key = snapshot.order[i];
-              var node = snapshot.nodes.get(key);
-              if (node === null || node === undefined || HISTORY_KINDS[node.kind] !== true) continue;
-              var data = node.data || {};
-              var text = historyTextOf(data.content, translate);
-              if (text === "") continue;
+          if (state.messages.length > 0) {
+            for (var m = 0; m < state.messages.length; m += 1) {
+              var message = state.messages[m];
+              if (message === null || message === undefined) continue;
+              var messageText = typeof message.text === "string" ? message.text.trim() : "";
+              if (messageText === "") continue;
               items.push({
-                key: key,
-                nodeKey: typeof node.key === "string" ? node.key : key,
-                turn: historyTurnOf(node),
-                text: text,
+                key: "seq:" + String(message.seq) + ":" + String(m),
+                nodeKey: null,
+                turn: typeof message.turn === "number" && isFinite(message.turn) ? message.turn : null,
+                text: messageText,
               });
             }
+          } else if (state.failed) {
+            /* The route is unavailable (e.g. a headless profile): fall back to
+               whatever the chat window already holds. */
+            var snapshotItems = [];
+            var snapshotError = "";
+            try {
+              if (snapshot !== null && snapshot !== undefined && Array.isArray(snapshot.order) && snapshot.nodes !== undefined && typeof snapshot.nodes.get === "function") {
+                for (var i = 0; i < snapshot.order.length; i += 1) {
+                  var key = snapshot.order[i];
+                  var node = snapshot.nodes.get(key);
+                  if (node === null || node === undefined || HISTORY_KINDS[node.kind] !== true) continue;
+                  var nodeData = node.data || {};
+                  var text = historyTextOf(nodeData.content, translate);
+                  if (text === "") continue;
+                  snapshotItems.push({
+                    key: "node:" + String(key),
+                    nodeKey: typeof node.key === "string" ? node.key : key,
+                    turn: historyTurnOf(node),
+                    text: text,
+                  });
+                }
+              }
+            } catch (error) {
+              snapshotError = String(error !== null && error !== undefined && error.message !== undefined ? error.message : error);
+            }
+            if (snapshotError === "") items = snapshotItems;
           }
+          /* The transcript reads top-to-bottom like the chat: land on the most
+             recent question instead of the oldest one. Scrolling the tail
+             marker into view also fixes the case where the scroll container is
+             an ancestor (the conversation body) rather than the list itself. */
+          react.useEffect(function () {
+            var marker = endRef.current;
+            if (marker === null || marker === undefined) return;
+            var scroll = function () {
+              try {
+                marker.scrollIntoView({ block: "end", inline: "nearest" });
+              } catch (error) {
+                /* older engines only accept the boolean form */
+              }
+              /* The view can live inside the conversation scroller rather than
+                 owning its own scrollbar: take that one to the bottom too. */
+              try {
+                var scroller = document.querySelector("[data-conversation-scroll]");
+                if (scroller !== null && scroller !== undefined && typeof scroller.scrollTop === "number") {
+                  scroller.scrollTop = scroller.scrollHeight;
+                }
+              } catch (error) {
+                /* the conversation may be mid-render */
+              }
+            };
+            scroll();
+            var timer = window.setTimeout(scroll, 80);
+            return function () { window.clearTimeout(timer); };
+          }, [state.loading, items.length]);
           var jump = function (item) {
-            jumpToHistoryNode(props, item.nodeKey, item.turn);
+            if (item.nodeKey !== null) jumpToHistoryNode(props, item.nodeKey, item.turn);
+            else jumpToHistoryTurn(props, item.turn);
           };
           return h(
             "div",
@@ -3768,11 +3894,15 @@
               h("div", { className: "wsr-history-title" }, translate("history.title")),
               h("div", { className: "wsr-history-sub" }, translate("history.summary", { count: items.length })),
             ),
+            state.loading ? h("div", { className: "wsr-history-note" }, translate("history.loading")) : null,
+            state.failed ? h("div", { className: "wsr-history-note" }, translate("history.failed")) : null,
             items.length === 0
-              ? h("div", { className: "wsr-history-empty" }, translate("history.empty"))
+              ? state.loading
+                ? null
+                : h("div", { className: "wsr-history-empty" }, translate("history.empty"))
               : h(
                   "div",
-                  { className: "wsr-history-list" },
+                  { className: "wsr-history-list", ref: listRef },
                   items.map(function (item, index) {
                     return h(
                       "div",
@@ -3785,7 +3915,7 @@
                           role: "button",
                           tabIndex: 0,
                           title: translate("history.jump"),
-                          "data-wsr-history-jump": item.nodeKey,
+                          "data-wsr-history-jump": item.turn === null ? "" : String(item.turn),
                           onClick: function () { jump(item); },
                           onKeyDown: function (event) {
                             if (event.key !== "Enter" && event.key !== " ") return;
@@ -3797,6 +3927,7 @@
                       ),
                     );
                   }),
+                  h("div", { key: "end", className: "wsr-history-end", ref: endRef }),
                 ),
           );
         }

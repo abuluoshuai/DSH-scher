@@ -31,15 +31,15 @@
       "id": "ws-recency",
       "row": "ws-recency",
       "package": "dsh-ws-recency",
-      "version": "0.28.0",
+      "version": "0.29.0",
       "directory": "plugins/dsh-ws-recency",
       "title": {
         "zh": "工作区最近顺序侧栏",
         "en": "Workspace recency sidebar"
       },
       "summary": {
-        "zh": "侧栏工作区按最近活跃排序、拖动/图钉置顶、历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索；**本地定制**：新增「历史」Tab，按顺序把本会话全部用户提问列成可点击气泡，点一下跳回原消息。",
-        "en": "Sidebar workspace recency ordering, pinning, folding, archive/trash, token stats, move/handoff, and content search; locally adds a History view listing every user question as bubbles that jump back to the original message."
+        "zh": "侧栏工作区按最近活跃排序、拖动/图钉置顶、历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索；**本地定制**：「历史」页直接读取会话日志列出全部真人提问，进入时停在最近提问，点击气泡跳回原消息。",
+        "en": "Sidebar workspace recency ordering, pinning, folding, archive/trash, token stats, move/handoff, and content search; locally adds a History view that reads the durable session log for every human prompt, lands on the most recent one, and jumps back to its turn."
       },
       "sizeMB": 0.34,
       "defaultSelected": true,

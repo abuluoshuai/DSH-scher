@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Workspace recency order",
-    "description": "Sidebar workspaces ordered by latest activity, with whole-workspace pinning by drag or the header pin control. Also keeps stale-history folding, archive and recoverable trash, per-session token statistics, moving a session to another workspace, handing work over to a fresh session, a literal content search that jumps to the turn a word was said in, and a History view listing every user question of the session as bubbles that jump back to the original message."
+    "description": "Sidebar workspaces ordered by latest activity, with whole-workspace pinning by drag or the header pin control. Also keeps stale-history folding, archive and recoverable trash, per-session token statistics, moving a session to another workspace, handing work over to a fresh session, a literal content search that jumps to the turn a word was said in, and a History view that reads the durable session log for every human prompt, lands on the most recent one, and jumps back to its turn."
   }
 }
