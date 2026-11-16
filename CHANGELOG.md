@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 — 2026-11-17
+
+- **dsh-color-style 升到 0.8.0**：任务栏闪烁扩展为「需要用户交互时也闪」。
+  - 触发点：根会话完成一轮（原有）、工具审批请求、结构化提问（`ask_user_question`）；
+  - 新增 `config.taskbarFlash.onInteraction`（默认 `true`）单独控制交互闪烁；子代理请求
+    受 `ignoreSubagents` 约束；一次提问里的多个问题用 250ms 防抖合并成一次；
+  - 只观察事件、不替用户作答；不配置时完成闪烁行为与 0.7.0 一致。
+- `modules.json` 的 color-style 条目更新到 0.8.0；Scher 版本 0.6.0。
+
 ## 0.5.0 — 2026-11-16
 
 - **dsh-color-style 升到 0.7.0（本地定制）**：设置 → 配色方案 页新增「用户消息区域」。

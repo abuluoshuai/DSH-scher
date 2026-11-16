@@ -40,7 +40,7 @@
 | 插件 | 版本 | 上游 / 来源 | 在 Scher 里做的事 |
 | --- | --- | --- | --- |
 | `dsh-ws-recency` | 0.28.0 | [chyxhtc/dsh-ws-recency](https://github.com/chyxhtc/dsh-ws-recency) | 侧栏工作区按最近活跃排序；**本地定制**：拖动或表头图钉把整个工作区固定顶部，去掉颜色标记与「全局置顶」区；保留过期历史折叠、归档与回收站、Token 统计、移动工作区、交接到新会话、会话内容搜索；新增「历史」Tab：按顺序列出本会话全部提问，点击气泡跳回原消息 |
-| `dsh-color-style` | 0.7.0 | [abuluoshuai/dsh-color-style](https://github.com/abuluoshuai/DSH-color-style) | 十种 Markdown 阅读配色：整窗背景、正文排版、左上角主题色；对话中历史用户消息气泡的文字颜色与背景色可单独自定义；**Host 半边**在会话跑完一轮、窗口不在前台时闪烁 Windows 任务栏图标（可单独关） |
+| `dsh-color-style` | 0.8.0 | [abuluoshuai/dsh-color-style](https://github.com/abuluoshuai/DSH-color-style) | 十种 Markdown 阅读配色：整窗背景、正文排版、左上角主题色；对话中历史用户消息气泡的文字颜色与背景色可单独自定义；**Host 半边**在会话完成一轮、或需要你审批/回答提问而窗口不在前台时闪烁 Windows 任务栏图标（可单独关） |
 | `dsh-better-sidebar` | 0.32.0 | [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 右侧栏：文件树、编辑器、变更、任务、侧边对话，每个会话独立 |
 | `dsh-remote` | 1.1.2 | [flymysql/dsh-remote](https://github.com/flymysql/dsh-remote) | SSH 远程工作区、远程终端、远程文件浏览与搜索；**本地定制**：注册进右侧栏、X11 转发、macOS 主机支持、远程文件树 VS Code 风格图标 |
 | `dsh-offwork-countdown` | 0.2.1 | [ZydFirst/dsh-offwork-countdown](https://github.com/ZydFirst/dsh-offwork-countdown) | 输入框下方的下班倒计时胶囊，到点转为加班计时；**本地定制**：到点在窗口上放一段可定制烟花（范围/密度/时长，设置里可预览） |
@@ -160,7 +160,7 @@ DSH-scher/
 
 | 行 id | 插件 | 可配置项 |
 | --- | --- | --- |
-| `color-style` | 配色方案 + 任务栏闪烁 | `taskbarFlash.enabled`、`.ignoreSubagents`、`.onlyWhenUnfocused`、`.flashCount`、`.cooldownMs`、`.processName`、`.powerShellCommand`、`.log`（用户消息气泡颜色走浏览器 localStorage，不在行 config 里） |
+| `color-style` | 配色方案 + 任务栏闪烁 | `taskbarFlash.enabled`、`.ignoreSubagents`、`.onlyWhenUnfocused`、`.onInteraction`、`.flashCount`、`.cooldownMs`、`.processName`、`.powerShellCommand`、`.log`（用户消息气泡颜色走浏览器 localStorage，不在行 config 里） |
 | `global-todo` | 全局待办 | `storePath`、`dispatchDir`、`activityLimit`、`requireExistingFiles`、`guidance`、`toolGroups`、`browseRoot`、`sync.dir`、`sync.intervalMinutes` |
 | `dsh-offwork-countdown` | 下班倒计时 | 无（时间与烟花设置在胶囊里改） |
 | `better-sidebar` | 右侧栏 | 无（在「设置 → 侧边卡片」里改） |

@@ -7,15 +7,15 @@
       "id": "color-style",
       "row": "color-style",
       "package": "dsh-color-style",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "directory": "plugins/dsh-color-style",
       "title": {
         "zh": "配色方案 + 完成时闪烁任务栏",
         "en": "Colour schemes + taskbar flash"
       },
       "summary": {
-        "zh": "十套 Markdown 阅读配色，控制整窗背景、正文排版与侧栏主区；对话中历史用户消息气泡的文字颜色与背景色可以单独自定义；Host 半边在会话跑完而窗口不在前台时闪烁 Windows 任务栏图标。",
-        "en": "Ten reading palettes for the whole window and rendered Markdown, custom text/background colours for the historical user-message bubbles, plus a Windows taskbar flash when a Session finishes out of focus."
+        "zh": "十套 Markdown 阅读配色，控制整窗背景、正文排版与侧栏主区；消息输入区域可以单独自定义文字颜色与背景色；Host 半边在会话完成一轮、或需要你审批/回答提问而窗口不在前台时闪烁 Windows 任务栏图标。",
+        "en": "Ten reading palettes for the whole window and rendered Markdown, custom text/background colours for the message input; the Host half flashes the Windows taskbar when a Session finishes a turn or needs the user (approval / structured question) while the window is out of focus."
       },
       "sizeMB": 0.2,
       "defaultSelected": true,
