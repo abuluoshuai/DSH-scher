@@ -88,6 +88,10 @@ node scripts/select-modules.mjs apply --modules color-style,ws-recency,better-si
 - 汇报格式：装了哪些（含版本）、跳过了哪些、**每个已装模块的外部前提**（SSH 主机、ComfyUI
   服务、IM 凭据、仅 Windows 的闪烁）以及重启/刷新要求。
 - 不要声称用户已经测试过功能；只报告「已安装、已启用、需要用户自己确认的项」。
+- **启用时报 `Cannot find package '@deepseek-ai/dsh-settings'` 之类的 import 错误**（常见于同一台
+  机器上刚从本地 `link:` 安装切换到 GitHub 安装）：包其实已经装好，只是正在运行的进程还缓存着
+  旧安装的模块路径（`better-sidebar`、`dsh-remote` 最容易中招）。让用户**完全退出并重新打开
+  DSH 应用**，重启后这 9 行会从新副本正常加载；重启后再用 `list_plugins` 复核一次即可。
 
 ## 附：模块与行 id 对照
 
