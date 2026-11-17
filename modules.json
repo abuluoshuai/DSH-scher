@@ -167,7 +167,7 @@
       "id": "global-todo",
       "row": "global-todo",
       "package": "dsh-global-todo",
-      "version": "0.23.2",
+      "version": "0.23.3",
       "directory": "plugins/dsh-global-todo",
       "title": {
         "zh": "全局待办",
@@ -183,8 +183,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。",
-        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default."
+        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地修复：详情/跳转按钮的 ctx 未透传导致展开会话待办时崩溃。",
+        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local fix: the detail/jump button crashed when a session-bound todo was expanded because ctx was not passed down."
       }
     },
     {

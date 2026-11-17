@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.1 — 2026-11-17
+
+- **修复 dsh-global-todo 的展开崩溃（本地修复，版本记 0.23.3）**：`TodoItem` 渲染「已绑定会话」
+  待办的详情/回读区块时引用了未声明的 `ctx`——`typeof ctx?.uiWorkspace?.openSession` 里的
+  `typeof` 只对裸标识符安全，带 `?.` 会真正求值 `ctx`，于是抛出
+  `ReferenceError: ctx is not defined`，面板错误边界接管后整块报错。
+  现在 `ctx` 由 `Panel` 透传给 `TodoItem`（默认 `null`），跳转按钮的可用性判断和点击都走
+  这个 prop；其余 `ctx` 引用均确认位于有 `ctx` 绑定的作用域。
+- `modules.json` 的 global-todo 条目更新到 0.23.3；Scher 版本 0.7.1。
+
 ## 0.7.0 — 2026-11-17
 
 - **dsh-ws-recency 升到 0.29.0（本地定制）**：「历史」页改为读会话日志的完整版。

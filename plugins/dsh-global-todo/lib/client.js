@@ -2080,7 +2080,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
      *   dispatchLabel: string, onAction: Function, onToggleOpen: Function }} props
      */
     function TodoItem(props) {
-      const { todo, lang, busy, open, dispatchLabel, onAction, onToggleOpen } = props
+      const { todo, lang, busy, open, dispatchLabel, onAction, onToggleOpen, ctx = null } = props
       const t = (key, params) => translate(lang, key, params)
       const now = Date.now()
       const done = todo.status === 'done'
@@ -5714,6 +5714,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
                                 key: todo.id,
                                 todo,
                                 lang,
+                                ctx,
                                 busy: busyId === todo.id,
                                 open: expandedId === todo.id,
                                 dispatchLabel,
