@@ -115,12 +115,7 @@ function remoteCd(remotePath) {
  * @returns {string}
  */
 function remoteCommand(remotePath) {
-  // WSLg exposes an X server on the REMOTE's /tmp/.X11-unix, not through the
-  // SSH connection: an SSH login does not inherit the interactive WSLg
-  // DISPLAY, so GUI apps otherwise fail with "cannot open X display ''".
-  // Adopt the remote socket only when SSH did not already hand us a forwarded
-  // DISPLAY (an explicit -X/X11Forwarding value always wins).
-  const script = `${remoteCd(remotePath)} 2>/dev/null || cd "$HOME"; if grep -qi microsoft /proc/version 2>/dev/null || [ -z "\${DISPLAY:-}" ]; then for x in /tmp/.X11-unix/X*; do [ -S "$x" ] && { export DISPLAY=":\${x##*X}"; break; }; done; fi; exec "\${SHELL:-/bin/bash}" -l`
+  const script = `${remoteCd(remotePath)} 2>/dev/null || cd "$HOME"; exec "\${SHELL:-/bin/bash}" -l`
   return posixViaSh(script)
 }
 
@@ -159,10 +154,6 @@ function isWindowsRemotePath(p) {
  */
 function buildSshArgs(target, machine) {
   const args = ['-tt']
-  // X11 forwarding is a terminal-only affordance: it must be requested on the
-  // same ssh invocation that owns the pty, so the forwarded channel belongs to
-  // this shell. Untrusted (-X) is the default; -Y is opt-in per machine.
-  if (machine && machine.x11Forward) args.push(machine.x11Trusted ? '-Y' : '-X')
   const alias = target.alias || (machine && machine.useSshConfig ? machine.host : '')
   if (alias) {
     args.push(String(alias))
@@ -431,12 +422,6 @@ function main(argv = process.argv.slice(2), deps = {}) {
   }
   const ssh = sshBinary(platform, env)
   const args = buildSshArgs(resolved.target, resolved.machine)
-  // The forwarded X11 channel is opened against this DISPLAY by the local ssh
-  // client. A saved per-machine value wins, then the process environment, then
-  // the common VcXsrv/XQuartz loopback default.
-  const x11Env = resolved.machine && resolved.machine.x11Forward
-    ? { DISPLAY: String(resolved.machine.x11Display || '').trim() || env.DISPLAY || '127.0.0.1:0.0' }
-    : undefined
   write(connectionBanner(resolved.target, env, deps.columns || process.stderr.columns || process.stdout.columns))
   if (isWindowsRemotePath(resolved.target.remotePath)) {
     process.stderr.write('[dsh-remote] the remote workspace is a Windows path; opening the remote default shell without changing directory.\n')
@@ -448,9 +433,9 @@ function main(argv = process.argv.slice(2), deps = {}) {
   const termDir = env.DSH_TERM_DIR || ''
   if (termDir && needsAskpass(resolved.machine) && existsSync(path.join(termDir, 'term-secret.json'))) {
     if (env.DSH_REMOTE_TERMINAL_DEBUG === '1') write('[dsh-remote] using saved credentials.\n')
-    return handover(ssh, args, { ...askpassEnv(resolved.machine, termDir, platform), ...(x11Env || {}) })
+    return handover(ssh, args, askpassEnv(resolved.machine, termDir, platform))
   }
-  return handover(ssh, args, x11Env)
+  return handover(ssh, args)
 }
 
 module.exports = {

@@ -79,7 +79,7 @@
       "id": "remote",
       "row": "dsh-remote",
       "package": "dsh-remote",
-      "version": "1.1.2",
+      "version": "1.2.1",
       "directory": "plugins/dsh-remote",
       "title": {
         "zh": "远程工作区",
@@ -89,7 +89,7 @@
         "zh": "SSH 远程工作区：远程终端、文件浏览与搜索、Git diff、X11 转发、macOS 主机支持，并提供远端改码/构建/测试的 Agent 工具。",
         "en": "SSH remote workspaces: remote terminals, file browsing and search, Git diffs, X11 forwarding, macOS hosts, and workspace-bound Agent tools."
       },
-      "sizeMB": 1.52,
+      "sizeMB": 1.66,
       "defaultSelected": true,
       "requires": [],
       "recommends": [

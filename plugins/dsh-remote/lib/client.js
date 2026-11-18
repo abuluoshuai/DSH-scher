@@ -27,7 +27,7 @@ window.__ModuleLoader__.load({
 
     const React = require('react')
     const name = 'dsh-remote'
-    const CLIENT_VERSION = '1.1.2'
+    const CLIENT_VERSION = '1.2.1'
 
     // ── optional host primitives ────────────────────────────────────────────
     // Issue #74: a remote session's .md link must open over SFTP, NOT via the
@@ -166,6 +166,42 @@ window.__ModuleLoader__.load({
       'ide.guideLayoutHint': '拖动分隔线调整栏宽；窄屏可切换文件、编辑器和会话。',
       'ide.documentation': '使用指南',
       'ide.tools': '会话工具', 'ide.toolsHint': '展开或收起会话附加工具与连接信息',
+      "local.explorer.tabTitle": "本地文件",
+      "local.workbench.openTerminal": "打开本地终端",
+      "local.workbench.terminalUnavailable": "本地终端尚不可用，请检查宿主终端插件。",
+      "local.workbench.filter": "搜索本地工作区",
+      "local.workbench.remote": "本地工作区",
+      "local.workbench.copyPath": "复制本地路径",
+      "local.workbench.saved": "已保存到本地",
+      "local.workbench.loadingFile": "正在读取本地文件…",
+      "local.file.readFail": "本地读取失败：{msg}",
+      "local.file.listFail": "本地目录读取失败：{msg}",
+      "local.file.conflictHelp": "本地文件已变化，草稿已保留。请重新读取并比较后合并修改。",
+      "local.file.discardReload": "舍弃草稿并重新读取",
+      "local.file.incompletePreview": "当前文件预览不完整，请在终端编辑完整文件。",
+      "local.explorer.connection.loading": "正在读取本地目录…",
+      "local.explorer.connection.interrupted": "本地访问失败 · 已保留文件列表",
+      "local.explorer.connection.ready": "本地目录已就绪",
+      "local.ide.welcomeTitle": "本地开发工作区",
+      "local.ide.guideFilesHint": "在左侧展开目录，或搜索项目文件、目录和内容。",
+      "local.ide.guideEditHint": "文件打开即可编辑。使用 Ctrl / ⌘ + S 保存到本地项目。",
+      "local.ide.guideAgentHint": "Agent 继续使用宿主原生文件与命令工具，在当前本地项目中工作。",
+      "local.ide.chooseFile": "从左侧选择项目文件，在这里编辑。",
+      "local.file.saveToRemote": "保存到本地",
+      "local.file.binary": "二进制文件（{size}），请使用本机应用打开。",
+      "local.file.truncated": "… 内容已截断，请在本机应用中查看完整文件。",
+      "local.file.conflict": "本地文件已变化，请重新读取",
+      "local.changes.title": "本地 Git 改动",
+      "local.changes.failed": "无法读取本地 Git 状态",
+      "local.changes.noGit": "本机未安装 Git，安装后点击刷新。",
+      "local.changes.unavailable": "当前无法查看本地 Git 状态。",
+      "local.changes.readOnly": "查看本地仓库，不自动提交或更改暂存区。",
+      "local.changes.refreshing": "正在刷新本地状态…",
+      "local.changes.loading": "正在读取本地 Git 状态…",
+      "local.changes.diff": "本地文件差异",
+      "local.changes.openFile": "打开本地文件",
+      "workspace.files": "工作区文件",
+      "workspace.git": "Git 改动",
       'ide.enter': 'IDE 模式', 'ide.exit': '返回普通模式', 'ide.files': '文件',
       'ide.editor': '编辑器', 'ide.chat': '会话', 'ide.openEditor': '打开编辑区',
       'ide.chooseFile': '从左侧选择远程文件，在这里编辑。',
@@ -292,7 +328,6 @@ window.__ModuleLoader__.load({
         'workbench.explorer': '资源管理器',
         'workbench.openTerminal': '打开远程终端',
         'workbench.terminalUnavailable': '远程终端尚不可用，请检查宿主终端插件与 remote ssh Shell。',
-        'workbench.remoteTerminalTab': '远程终端',
         'workbench.filter': '搜索远程工作区',
         'workbench.collapse': '折叠全部目录',
         'workbench.remote': '远程工作区',
@@ -397,7 +432,7 @@ window.__ModuleLoader__.load({
         // 灰按钮必须能解释自己：用户「点了没反应」时唯一能拿到的线索就是 hover 提示。
         'settings.saveNeedsHost': '先填写主机地址才能保存',
         'settings.saveHint': '保存这台机器（留空的密码/私钥/passphrase 沿用已保存的值）',
-        'settings.fwdNeedsPort': '先填写本地监听端口才能添加转发',
+        'settings.fwdNeedsPort': '先填写监听端口才能添加转发',
         'settings.fwdAddHint': '添加一条端口转发',
         'settings.advCollapse': '收起高级配置',
         'settings.advExpand': '高级配置：认证与连接选项',
@@ -410,10 +445,6 @@ window.__ModuleLoader__.load({
         'settings.hkOff': 'off（不校验，不推荐）',
         'settings.agent': 'SSH agent（SSH_AUTH_SOCK）',
         'settings.keyboardInteractive': 'keyboard-interactive（OTP/动态码）',
-        'settings.x11Forward': 'X11 转发（ssh -X）',
-        'settings.x11Display': 'X11 DISPLAY',
-        'settings.x11DisplayPlaceholder': '127.0.0.1:0.0',
-        'settings.x11Hint': 'WSLg 会自动发现远端 /tmp/.X11-unix 的 DISPLAY，无需本机 X server；其他远端需要本机 X server（如 VcXsrv），远程终端启动时自动带 -X。',
         'settings.encryptPassword': '加密保存密码（系统钥匙串）',
         'settings.proxyHost': '跳板机',
         'settings.proxyPortUser': '端口/用户',
@@ -425,15 +456,31 @@ window.__ModuleLoader__.load({
         'settings.saving': '保存中…',
         'settings.save': '保存',
         'settings.forwards': '端口转发（SSH 隧道）',
+        'settings.forwardsHint': '谁要发起访问，就在谁那边开监听口：监听口开在本机就是本地转发（ssh -L），开在远端就是远程转发（ssh -R）。',
+        'settings.fwdLocalHint': '监听口开在本机，连接转发到远端目标。',
+        'settings.fwdSideLocal': '本机 -L',
+        'settings.fwdSideReverse': '远端 -R',
+        'settings.fwdReverseHint': '监听口开在远端，连接转发回本机目标。',
         'settings.fwdStop': '停止',
         'settings.fwdStart': '启动',
+        'settings.fwdStarting': '启动中…',
         'settings.fwdRemove': '删除',
-        'settings.fwdDirLocal': '本地→远端',
-        'settings.fwdDirReverse': '远端→本地',
+        'settings.fwdDirLocal': '本地 (-L)',
+        'settings.fwdDirReverse': '远程 (-R)',
         'settings.fwdListen': '监听端口',
         'settings.fwdTargetHost': '目标主机',
         'settings.fwdTargetPort': '目标端口',
         'settings.fwdAuto': '自动重连',
+        'settings.fwdAutoHint': '掉线重连后自动恢复这条转发',
+        'settings.fwdLegacyBadge': '需重新确认',
+        'settings.fwdLegacyHint': '旧版「自动重连」配置已暂停：重新勾选，并在需要时手动启动一次。',
+        'settings.fwdAutoNoticeTitle': '自动重连会做什么？',
+        'settings.fwdAutoNoticeBody': '勾选后，这条转发会记住“上次是否在运行”。\n\ndsh-web 启动时会自动连接当前机器，连上后恢复这条转发。\n\n如果机器连不上、凭据失效或端口被占用，本次恢复会失败，但不影响其他功能。\n\nDSH 重启后，只会恢复上次运行中的转发（从没启动过的不会自动启动）。',
+        'settings.fwdAutoNoticeTitleReverse': '反向转发的自动重连会做什么？',
+        'settings.fwdAutoNoticeBodyReverse': '勾选后，这条反向转发会记住“上次是否在运行”。\n\ndsh-web 启动时会自动连接当前机器，并在这台机器上重新监听端口、把连接转发回你本机；也就是说，重启后它会在远端自动重新打开监听。\n\n只有上次运行中的反向转发会被恢复；如果机器连不上、远端 AllowTcpForwarding 被关闭或端口被占用，本次恢复会失败，但不影响其他功能。\n\n如果不想让远端自动重新监听，请取消勾选或手动停止。',
+        'settings.fwdAutoNoticeConfirm': '仍然勾选',
+        'settings.fwdAutoNoticeCancel': '取消',
+        'settings.fwdAutoNoticeDontShow': '不再提示',
         'settings.fwdAdd': '添加转发',
         'settings.cleanup': '工作区清理（本地镜像与对话）',
         'settings.cleanupRefresh': '刷新',
@@ -731,6 +778,42 @@ window.__ModuleLoader__.load({
       'ide.guideLayoutHint': 'Drag separators to resize columns. Switch panes on narrow screens.',
       'ide.documentation': 'User guide',
       'ide.tools': 'Chat tools', 'ide.toolsHint': 'Show or hide extra conversation tools and connection details',
+      "local.explorer.tabTitle": "Local files",
+      "local.workbench.openTerminal": "Open local terminal",
+      "local.workbench.terminalUnavailable": "Local terminal unavailable. Check the host terminal plugin.",
+      "local.workbench.filter": "Search local workspace",
+      "local.workbench.remote": "Local workspace",
+      "local.workbench.copyPath": "Copy local path",
+      "local.workbench.saved": "Saved locally",
+      "local.workbench.loadingFile": "Reading local file…",
+      "local.file.readFail": "Local read failed: {msg}",
+      "local.file.listFail": "Local listing failed: {msg}",
+      "local.file.conflictHelp": "Local file changed. Your draft is retained; reload and compare before merging.",
+      "local.file.discardReload": "Discard draft and reload",
+      "local.file.incompletePreview": "Incomplete preview; edit the complete file in the terminal.",
+      "local.explorer.connection.loading": "Reading local directory…",
+      "local.explorer.connection.interrupted": "Local access failed · file list retained",
+      "local.explorer.connection.ready": "Local directory ready",
+      "local.ide.welcomeTitle": "Local development workspace",
+      "local.ide.guideFilesHint": "Expand folders on the left, or search project files, directories and contents.",
+      "local.ide.guideEditHint": "Files open ready to edit. Use Ctrl / ⌘ + S to save to the local project.",
+      "local.ide.guideAgentHint": "The Agent uses the host’s native file and command tools in this local project.",
+      "local.ide.chooseFile": "Select a project file on the left to edit here.",
+      "local.file.saveToRemote": "Save locally",
+      "local.file.binary": "Binary file ({size}); open it with a local application.",
+      "local.file.truncated": "… Preview truncated; open the complete file with a local application.",
+      "local.file.conflict": "Local file changed; reload before saving",
+      "local.changes.title": "Local Git changes",
+      "local.changes.failed": "Could not read local Git status",
+      "local.changes.noGit": "Git is unavailable on this host. Install it and refresh.",
+      "local.changes.unavailable": "Local Git status is unavailable.",
+      "local.changes.readOnly": "Inspect the local repository without changing commits or the index.",
+      "local.changes.refreshing": "Refreshing local status…",
+      "local.changes.loading": "Reading local Git status…",
+      "local.changes.diff": "Local file diff",
+      "local.changes.openFile": "Open local file",
+      "workspace.files": "Workspace files",
+      "workspace.git": "Git changes",
       'ide.enter': 'IDE mode', 'ide.exit': 'Return to standard mode', 'ide.files': 'Files',
       'ide.editor': 'Editor', 'ide.chat': 'Chat', 'ide.openEditor': 'Open editor area',
       'ide.chooseFile': 'Choose a remote file on the left to edit it here.',
@@ -857,7 +940,6 @@ window.__ModuleLoader__.load({
         'workbench.explorer': 'Explorer',
         'workbench.openTerminal': 'Open remote terminal',
         'workbench.terminalUnavailable': 'Remote terminal is unavailable. Check the host terminal plugin and remote ssh shell.',
-        'workbench.remoteTerminalTab': 'Remote terminal',
         'workbench.filter': 'Search remote workspace',
         'workbench.collapse': 'Collapse all folders',
         'workbench.remote': 'Remote workspace',
@@ -954,7 +1036,7 @@ window.__ModuleLoader__.load({
         'settings.testNeedsHost': 'Fill in the host before testing',
         'settings.saveNeedsHost': 'Fill in the host before saving',
         'settings.saveHint': 'Save this machine (a blank password/key/passphrase keeps the saved one)',
-        'settings.fwdNeedsPort': 'Fill in the local listen port before adding a forward',
+        'settings.fwdNeedsPort': 'Fill in the listen port before adding a forward',
         'settings.fwdAddHint': 'Add a port forward',
         'settings.advCollapse': 'Hide advanced options',
         'settings.advExpand': 'Advanced authentication and connection options',
@@ -967,10 +1049,6 @@ window.__ModuleLoader__.load({
         'settings.hkOff': 'off (no verification, not recommended)',
         'settings.agent': 'SSH agent (SSH_AUTH_SOCK)',
         'settings.keyboardInteractive': 'keyboard-interactive (OTP / dynamic code)',
-        'settings.x11Forward': 'X11 forwarding (ssh -X)',
-        'settings.x11Display': 'X11 DISPLAY',
-        'settings.x11DisplayPlaceholder': '127.0.0.1:0.0',
-        'settings.x11Hint': 'WSLg discovers the remote /tmp/.X11-unix DISPLAY automatically (no local X server needed). Other remotes need a local X server (for example VcXsrv); the remote terminal starts with -X.',
         'settings.encryptPassword': 'Encrypt saved password (system keychain)',
         'settings.proxyHost': 'Proxy jump host',
         'settings.proxyPortUser': 'Port / user',
@@ -982,15 +1060,31 @@ window.__ModuleLoader__.load({
         'settings.saving': 'Saving…',
         'settings.save': 'Save',
         'settings.forwards': 'Port forwarding (SSH tunnels)',
+        'settings.forwardsHint': 'Open the listener on the side that starts the connection: a listener here is a local forward (ssh -L); one on the remote is a reverse forward (ssh -R).',
+        'settings.fwdLocalHint': 'The listener is on this machine; connections go to the remote target.',
+        'settings.fwdSideLocal': 'Local -L',
+        'settings.fwdSideReverse': 'Remote -R',
+        'settings.fwdReverseHint': 'The listener is on the remote; connections come back to the local target.',
         'settings.fwdStop': 'Stop',
         'settings.fwdStart': 'Start',
+        'settings.fwdStarting': 'Starting…',
         'settings.fwdRemove': 'Remove',
-        'settings.fwdDirLocal': 'Local → remote',
-        'settings.fwdDirReverse': 'Remote → local',
+        'settings.fwdDirLocal': 'Local (-L)',
+        'settings.fwdDirReverse': 'Remote (-R)',
         'settings.fwdListen': 'Listen port',
         'settings.fwdTargetHost': 'Target host',
         'settings.fwdTargetPort': 'Target port',
         'settings.fwdAuto': 'Auto reconnect',
+        'settings.fwdAutoHint': 'Restore this forward automatically after a reconnect',
+        'settings.fwdLegacyBadge': 'Re-confirm',
+        'settings.fwdLegacyHint': 'The legacy auto-reconnect setting was paused: tick it again and start the forward once if needed.',
+        'settings.fwdAutoNoticeTitle': 'What does Auto reconnect do?',
+        'settings.fwdAutoNoticeBody': 'When checked, this forward remembers whether it was running.\n\ndsh web connects the current machine on startup and restores the forward once connected.\n\nIf the host is unreachable, credentials fail, or the port is taken, that restore fails without affecting anything else.\n\nAfter a DSH restart only forwards that were running come back (one that was never started stays down).',
+        'settings.fwdAutoNoticeTitleReverse': 'What does Auto reconnect do for a reverse forward?',
+        'settings.fwdAutoNoticeBodyReverse': 'When checked, this reverse forward remembers whether it was running.\n\ndsh web connects the current machine on startup and makes the REMOTE listen again, piping connections back to your machine. In other words, it re-opens the remote listener automatically after a restart.\n\nOnly reverse forwards that were running are restored; if the host is unreachable, AllowTcpForwarding was disabled, or the port is taken, that restore fails without affecting anything else.\n\nUncheck this or stop the forward if the remote must not listen again on its own.',
+        'settings.fwdAutoNoticeConfirm': 'Enable anyway',
+        'settings.fwdAutoNoticeCancel': 'Cancel',
+        'settings.fwdAutoNoticeDontShow': "Don't show again",
         'settings.fwdAdd': 'Add forward',
         'settings.cleanup': 'Workspace cleanup (local mirrors & chats)',
         'settings.cleanupRefresh': 'Refresh',
@@ -1310,13 +1404,35 @@ window.__ModuleLoader__.load({
     // The official Electron shell serves the shared API over its private
     // dsh-app carrier. Legacy browser hosts keep their existing route prefix.
     // Choose before sending: never retry a mutating request on another route.
+    //
+    // A browser host may mount the harness UNDER A PATH PREFIX (the fnOS
+    // console serves it at /app/<app>/dsh/, and any prefix-stripping reverse
+    // proxy does the same). The routes are registered at the server ROOT, so a
+    // ROOT-ABSOLUTE '/dsh-remote/...' request would leave the mount and hit
+    // the gateway's own SPA — a 404 with an empty body, and the remote
+    // workspace panel then shows no hosts at all.
+    //
+    // The page's <base href="./"> makes every relative resource resolve
+    // against the mount DIRECTORY, so the route must resolve the same way:
+    // drop the leading slash and let the base carry the prefix. Resolving
+    // against the base's own directory ('.' against the base URL) is exactly
+    // what the browser does for the plugin bundle URL, so the API and the
+    // bundle can never disagree about where the mount lives.
     function apiPath(path) {
-      return window.location && window.location.protocol === 'dsh-app:'
-        ? '/api' + path : path
+      if (window.location && window.location.protocol === 'dsh-app:') return '/api' + path
+      const base = typeof document !== 'undefined' ? document.baseURI : ''
+      if (!base) return path
+      try {
+        const baseUrl = new URL(base)
+        if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') return path
+        return new URL('.', baseUrl).pathname + path.replace(/^\/+/, '')
+      } catch {
+        return path
+      }
     }
 
     function sessionQuery(sessionId) {
-      return sessionId ? 'sessionId=' + encodeURIComponent(sessionId) : ''
+      return sessionId ? 'sessionId=' + encodeURIComponent(sessionId) + (localWorkspaceSession(sessionId) ? '&workspace=local' : '') : ''
     }
     function withSessionQuery(path, sessionId) {
       const q = sessionQuery(sessionId)
@@ -1325,7 +1441,7 @@ window.__ModuleLoader__.load({
     }
     function withSessionBody(body, sessionId) {
       if (!sessionId) return body
-      return Object.assign({}, body || {}, { sessionId })
+      return Object.assign({}, body || {}, { sessionId }, localWorkspaceSession(sessionId) ? { workspace: 'local' } : {})
     }
 
     async function api(method, path, body, signal) {
@@ -1711,7 +1827,6 @@ window.__ModuleLoader__.load({
     let SESSIONS = null // optional sessions service, tracked by ctx.inject in apply()
     let WEB_TERMINALS = null
     let SIDEBAR_RIGHT = null // optional native right-column controller (ctx.sidebarRight)
-    let BETTER_SIDEBAR = null // optional dsh-better-sidebar registry (ctx.betterSidebar)
     // Which world currently owns the remote-explorer presentation: set by the
     // guide-card handshake in registerNativeSidebar (better-sidebar arrival
     // moves the card there; its departure brings it back).
@@ -1742,9 +1857,80 @@ window.__ModuleLoader__.load({
       observer.observe(document.body, { childList: true, subtree: true }); sync()
       return () => { observer.disconnect(); for (const button of marked) button.removeAttribute('data-rw-settings-legacy-icon') }
     }
-    function discoveredProbeTargets(hosts, machines) {
-      return (hosts || []).filter(host => !machines.some(machine => machine.useSshConfig && machine.host === String(host.alias || host.host))).map(host => ({ key: 'ssh:' + String(host.alias || host.host), body: { host: String(host.alias || host.host), port: Number(host.port) || 22, username: host.user || '', useSshConfig: true }, fingerprint: host }))
+    // A slow probe uses the server's configured connectTimeoutMs; the client
+    // never overrides it. Only a genuine timeout may be retried (never exit -1).
+    const isProbeTimeout = (error) => /\bETIMEDOUT\b|\btimed[\s-]?out\b|\btimeout\b/i.test(String((error && error.message) || error || ''))
+    // dsh-remote-fix4: identity, not alias, is what a probe may dial once, and
+    // what a list row may show once. `dogyun`, `dg` and `dogyun.up2mountain.top`
+    // are one machine; showing or probing them three times was how the same
+    // server came out green, red and green in one sweep.
+    const identityKeyOf = (host, port, username) => String(host || '').trim().toLowerCase() + '|' + (Number(port) || 22) + '|' + String(username || '').trim()
+    /** Resolved identity of a ~/.ssh/config entry — the alias is only a name. */
+    const hostIdentityKey = (h) => identityKeyOf(h && (h.hostName || h.alias || h.host), h && h.port, h && h.user)
+    /** A discovered alias may share a probe only when its effective SSH
+     * connection settings match, not merely when HostName/User/Port match. */
+    const discoveredConfigKey = (h) => JSON.stringify([hostIdentityKey(h), String((h && h.identityFile) || ''), String((h && h.proxyJump) || ''), String((h && h.proxyCommand) || '')])
+    /** Resolved identity of a saved machine (registry values may be stale). */
+    const machineIdentityKey = (m) => identityKeyOf((m && m.sshConfigResolved && m.sshConfigResolved.host) || (m && m.host), (m && m.sshConfigResolved && m.sshConfigResolved.port) || (m && m.port), (m && m.sshConfigResolved && m.sshConfigResolved.username) || (m && m.username))
+    /** Effective SSH settings of a saved alias, in the same key shape as a
+     * discovered entry. Missing metadata never becomes an endpoint fallback. */
+    const machineConfigKey = (m) => {
+      const r = m && m.sshConfigResolved
+      if (!r || !r.matched) return ''
+      return discoveredConfigKey({ hostName: r.host, port: r.port, user: r.username,
+        identityFile: r.identityFile, proxyJump: r.proxyJump, proxyCommand: r.proxyCommand })
     }
+    /** Git-only hosts: SSH works, but there is no shell and no workspace. */
+    const isGitHost = (value) => /(^|\.)github\.com$/i.test(String(value || '').trim())
+    // Saved GitHub rows remain manageable, but a known shell-less endpoint is
+    // not probed as if it were a remote workspace host.
+    const shouldProbeMachine = (m) => !isGitHost(m && m.host) && !isGitHost(m && m.sshConfigResolved && m.sshConfigResolved.host)
+    /**
+     * One entry per resolved identity, preferring the block's canonical name
+     * (the alias that equals HostName) over a short alias.
+     */
+    function dedupeHostEntries(hosts) {
+      const byIdentity = new Map()
+      for (const host of hosts || []) {
+        const name = String((host && (host.alias || host.host)) || '')
+        if (isGitHost(name) || isGitHost(host && host.hostName) || isGitHost(host && host.host)) continue
+        const key = discoveredConfigKey(host)
+        const current = byIdentity.get(key)
+        if (!current) { byIdentity.set(key, host); continue }
+        const currentName = String(current.alias || current.host || '')
+        const canonical = String((host && host.hostName) || '')
+        if (currentName !== String(current.hostName || '') && name === canonical) byIdentity.set(key, host)
+      }
+      return [...byIdentity.values()]
+    }
+
+    /** Saved records keep their own management and probe identity. Only a
+     * resolved SSH identity or an exact alias may suppress a discovered row. */
+    function savedSshIdentitySets(machines) {
+      const resolvedIdentities = new Set(), aliases = new Set()
+      for (const m of machines || []) {
+        if (m && m.sshConfigResolved && m.sshConfigResolved.matched) resolvedIdentities.add(machineConfigKey(m))
+        if (m && m.useSshConfig && m.host) aliases.add(String(m.host))
+      }
+      return { resolvedIdentities, aliases }
+    }
+    function dedupeDiscoveredForSaved(hosts, machines) {
+      const { resolvedIdentities, aliases } = savedSshIdentitySets(machines)
+      const suppressed = new Set(resolvedIdentities)
+      // Resolve an exact saved alias through the discovered config itself. This
+      // suppresses the whole alias group before canonical-name selection, so a
+      // saved short alias cannot reappear under its full HostName sibling.
+      for (const h of hosts || []) {
+        const alias = String((h && (h.alias || h.host)) || '')
+        if (aliases.has(alias)) suppressed.add(discoveredConfigKey(h))
+      }
+      return dedupeHostEntries(hosts).filter((h) => !suppressed.has(discoveredConfigKey(h)))
+    }
+    // dsh-remote-fix4: the old discoveredProbeTargets() built one probe target
+    // per ~/.ssh/config alias and only filtered exact-name duplicates. The sweep
+    // now derives its targets from the deduped lists inside each component, so
+    // keeping a second, differently-deduped builder here would invite the two to
+    // drift apart.
     function RemoteWorkspacePage() {
       const settingsId = React.useId()
       const [settingsTab, setSettingsTab] = React.useState('hosts')
@@ -1762,7 +1948,6 @@ window.__ModuleLoader__.load({
       const [form, setForm] = React.useState(() => settingsEditorDraft?.form || {
         name: '', host: '', port: '22', username: 'root', password: '', privateKeyPath: '',
         passphrase: '', workspace: '', hostKeyMode: '', useAgent: false, keyboardInteractive: false,
-        x11Forward: false, x11Trusted: false, x11Display: '',
         encryptPassword: false, proxyHost: '', proxyPort: '22', proxyUser: '', proxyPassword: '', proxyKey: '', id: '',
         // Issue #38: alias mode — `host` is a ~/.ssh/config Host name and the
         // resolved values are never copied into the registry.
@@ -1795,6 +1980,14 @@ window.__ModuleLoader__.load({
       // push the update/audit cards far down the page for a feature most sessions
       // never touch.
       const [fwdOpen, setFwdOpen] = React.useState(false)
+      // id → true while a start/stop request is in flight; the row shows a
+      // pending label and cannot be clicked twice (a second click used to race
+      // the first one for the same listen port).
+      const [fwdBusy, setFwdBusy] = React.useState({})
+      // First-time explanation for 自动重连. `fwdNotice.target` is either
+      // {kind:'row', id} or {kind:'form'} (the add-forward form's checkbox).
+      const [fwdNotice, setFwdNotice] = React.useState(null)
+      const [fwdNoticeDontShow, setFwdNoticeDontShow] = React.useState(false)
       const [auditOpen, setAuditOpen] = React.useState(false)
       // Issue #96: workspace cleanup on Web/Desktop (the TUI's machine-menu
       // cleanup page has an in-process API; here it is these two routes).
@@ -2086,7 +2279,6 @@ window.__ModuleLoader__.load({
           name: m.name, host: m.host, port: String(m.port || 22), username: m.username || 'root',
           password: '', privateKeyPath: m.privateKeyPath || '', passphrase: '', workspace: m.workspace || '',
           hostKeyMode: m.hostKeyMode || '', useAgent: !!m.useAgent, keyboardInteractive: !!m.keyboardInteractive,
-          x11Forward: !!m.x11Forward, x11Trusted: !!m.x11Trusted, x11Display: m.x11Display || '',
           encryptPassword: !!(m.credentialBackend && m.credentialBackend !== 'plain'),
           proxyHost: (m.proxy && m.proxy.host) || '', proxyPort: String((m.proxy && m.proxy.port) || 22),
           proxyUser: (m.proxy && m.proxy.username) || '', proxyPassword: '', proxyKey: (m.proxy && m.proxy.privateKeyPath) || '',
@@ -2107,7 +2299,7 @@ window.__ModuleLoader__.load({
         formBaseline.current = JSON.stringify(next)
         setForm(next)
         // 编辑时若该机器用了高级配置(私钥/agent/跳板/钥匙串/系统 OpenSSH 后端),自动展开折叠区
-        setAdvOpen(!!(m.privateKeyPath || m.useAgent || m.keyboardInteractive || m.x11Forward || (m.proxy && m.proxy.host) || m.backend === 'openssh' || m.webAttachCommand || m.webAttachDiscoverCommand || (m.credentialBackend && m.credentialBackend !== 'plain')))
+        setAdvOpen(!!(m.privateKeyPath || m.useAgent || m.keyboardInteractive || (m.proxy && m.proxy.host) || m.backend === 'openssh' || m.webAttachCommand || m.webAttachDiscoverCommand || (m.credentialBackend && m.credentialBackend !== 'plain')))
       }
       const startEdit = (machine) => {
         if (busy) return
@@ -2119,9 +2311,10 @@ window.__ModuleLoader__.load({
         probeRevision.current++; settingsEditorDraft = null; formBaseline.current = null
         const focusId = settingsId + '-actions-' + form.id
         clearForm(); setErr(''); setMsg(''); setTst(''); setAdvOpen(false)
+        setProbeGeneration(value => value + 1)
         window.setTimeout(() => document.getElementById(focusId)?.focus?.(), 0)
       }
-      const clearForm = () => setForm({ name: '', host: '', port: '22', username: 'root', password: '', privateKeyPath: '', passphrase: '', workspace: '', hostKeyMode: '', useAgent: false, keyboardInteractive: false, x11Forward: false, x11Trusted: false, x11Display: '', encryptPassword: false, proxyHost: '', proxyPort: '22', proxyUser: '', proxyPassword: '', proxyKey: '', backend: 'native', sshBinary: '', webAttachCommand: '', webAttachDiscoverCommand: '', id: '', useSshConfig: false, passwordSet: false, passphraseSet: false, proxyPasswordSet: false })
+      const clearForm = () => setForm({ name: '', host: '', port: '22', username: 'root', password: '', privateKeyPath: '', passphrase: '', workspace: '', hostKeyMode: '', useAgent: false, keyboardInteractive: false, encryptPassword: false, proxyHost: '', proxyPort: '22', proxyUser: '', proxyPassword: '', proxyKey: '', backend: 'native', sshBinary: '', webAttachCommand: '', webAttachDiscoverCommand: '', id: '', useSshConfig: false, passwordSet: false, passphraseSet: false, proxyPasswordSet: false })
       const save = (action) => {
         if (busy) return
         probeRevision.current++
@@ -2134,7 +2327,6 @@ window.__ModuleLoader__.load({
           action: form.id ? 'update' : 'add', id: form.id || undefined, name: form.name, host: form.host, port: Number(form.port) || 22,
           username: form.username, password: form.password, privateKeyPath: form.privateKeyPath, passphrase: form.passphrase,
           workspace: form.workspace, hostKeyMode: form.hostKeyMode, useAgent: form.useAgent, keyboardInteractive: form.keyboardInteractive,
-          x11Forward: !!form.x11Forward, x11Trusted: !!form.x11Trusted, x11Display: form.x11Display || '',
           encryptPassword: form.encryptPassword, useSshConfig: !!form.useSshConfig,
           // Issue #51: the transport backend (and, for `openssh`, the executable).
           backend: form.backend || 'native', sshBinary: form.sshBinary || '',
@@ -2191,10 +2383,30 @@ window.__ModuleLoader__.load({
       // Every visible host is tested once on entry/config changes; at most three
       // probes run together. Leaving the page cancels queued work and stale results.
       const [probeGeneration, setProbeGeneration] = React.useState(0)
-      const probeTargets = [
-        ...discoveredProbeTargets(sshHosts, machines),
-        ...machines.map(machine => ({ key: 'machine:' + machine.id, body: { id: machine.id, host: machine.host, port: machine.port, username: machine.username, useSshConfig: !!machine.useSshConfig }, fingerprint: machine })),
-      ]
+      // dsh-remote-fix5: derivation hoisted - the probe queue below reads
+      // these lists, so declaring them afterwards is a TDZ crash at render.
+      //
+      // Saved records are NEVER collapsed: the same endpoint can intentionally
+      // use different credentials, backends or proxies. Only discovered rows
+      // are deduped, and explicit saved records (including GitHub) stay visible.
+      const uniqueMachines = machines
+      const discovered = dedupeDiscoveredForSaved(sshHosts || [], machines)
+
+      // Keep row order stable while connectivity results arrive.
+      const sortedMachines = [...uniqueMachines].sort((a, b) => String(a.name || a.host).localeCompare(String(b.name || b.host)))
+      // Every saved machine id gets its own probe (credentials and backend are
+      // record-specific); each discovered effective config gets at most one.
+      const probeTargets = []
+      for (const machine of uniqueMachines) {
+        if (!shouldProbeMachine(machine)) continue
+        const identity = machineIdentityKey(machine)
+        probeTargets.push({ key: 'machine:' + machine.id, identity, body: { id: machine.id, host: machine.host, port: machine.port, username: machine.username, useSshConfig: !!machine.useSshConfig }, fingerprint: machine })
+      }
+      for (const host of discovered) {
+        const identity = discoveredConfigKey(host)
+        const alias = String(host.alias || host.host)
+        probeTargets.push({ key: 'ssh:' + alias, identity, body: { host: alias, port: Number(host.port) || 22, username: host.user || '', useSshConfig: true }, fingerprint: host })
+      }
       probeTargets.sort((a, b) => a.key.localeCompare(b.key))
       const probeSignature = JSON.stringify(probeTargets.map(target => ({ ...target, fingerprint: target.fingerprint && { ...target.fingerprint, connected: undefined, lastConnectedAt: undefined, latencyMs: undefined, recentWorkspaces: undefined, workspace: undefined } })))
       React.useEffect(() => {
@@ -2206,7 +2418,21 @@ window.__ModuleLoader__.load({
           while (queue.length && !controller.signal.aborted) {
             const target = queue.shift()
             try {
-              const result = await api('POST', '/dsh-remote/test-connect', { ...target.body, connectTimeoutMs: 5000 }, controller.signal)
+              // Omitting connectTimeoutMs lets the server use its real config.
+              // The route reports failures as 200 + {ok:false,error}, so one
+              // loop handles both throw and payload forms, at most two attempts.
+              const probeBody = target.body
+              let result
+              for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                  result = await api('POST', '/dsh-remote/test-connect', probeBody, controller.signal)
+                } catch (error) {
+                  if (controller.signal.aborted || attempt === 2 || !isProbeTimeout(error)) throw error
+                  continue
+                }
+                if (attempt < 2 && !controller.signal.aborted && result && result.ok === false && isProbeTimeout(result.error)) continue
+                break
+              }
               if (!controller.signal.aborted) setRow(target.key, { ok: !!result?.ok, latencyMs: result?.latencyMs, text: result?.ok ? '' : result?.error || tr('settings.connFail') })
             } catch (error) {
               if (!controller.signal.aborted) setRow(target.key, { ok: false, text: String(error.message || error) })
@@ -2214,15 +2440,68 @@ window.__ModuleLoader__.load({
           }
         }
         Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
-        return () => controller.abort()
+        return () => {
+          controller.abort()
+          // Aborted rows must not remain visually pending forever. Completed
+          // results stay; a new effect will rebuild its own pending queue.
+          setRowState((prev) => Object.fromEntries(Object.entries(prev || {}).filter(([, value]) => !value || !value.pending)))
+        }
       }, [probeSignature, probeGeneration, hostsLoaded, sshHosts === null])
       const refreshHosts = () => { setProbeGeneration(value => value + 1); refresh().catch(error => setErr(String(error.message || error))); loadSshHosts() }
 
       // ── forwards panel ────────────────────────────────────────────────────
-      const fwdAction = (action, id) => {
-        api('POST', '/dsh-remote/forwards', { action, id })
-          .then((r) => { setForwards(r.forwards || []); setErr(''); setMsg('') })
-          .catch((e) => setErr(String((e && e.message) || e)))
+      const fwdAction = (action, id, extra) => {
+        setFwdBusy((m) => ({ ...m, [id]: true }))
+        // apiRaw, not api: a failed start still carries the CURRENT list (a
+        // concurrent autoStart pass may have bound the port already), and the UI
+        // must not keep showing 启动 for a tunnel that is listening.
+        apiRaw('POST', '/dsh-remote/forwards', { action, id, ...(extra || {}) })
+          .then(({ status, data }) => {
+            const body = data || {}
+            if (Array.isArray(body.forwards)) setForwards(body.forwards)
+            if (status >= 400 || body.ok === false) {
+              setErr(String(body.error || ('HTTP ' + status)))
+              if (!Array.isArray(body.forwards)) refreshForwards()
+              return
+            }
+            setErr('')
+            setMsg('')
+          })
+          .catch((e) => { setErr(String((e && e.message) || e)); refreshForwards() })
+          .finally(() => setFwdBusy((m) => {
+            if (!m[id]) return m
+            const next = { ...m }
+            delete next[id]
+            return next
+          }))
+      }
+      // The two directions carry different risks, so they are explained (and
+      // remembered) separately: dismissing the local notice must not silence
+      // the reverse-listener warning.
+      const fwdNoticeKey = (direction) => 'dsh-remote.fwd-auto-notice-' + (direction === 'reverse' ? 'reverse' : 'local') + '-v1'
+      const fwdNoticeDismissed = (direction) => {
+        try { return window.localStorage.getItem(fwdNoticeKey(direction)) === '1' } catch { return false }
+      }
+      const dismissFwdNotice = (direction) => {
+        try { window.localStorage.setItem(fwdNoticeKey(direction), '1') } catch { /* private mode */ }
+      }
+      const applyFwdAutoStart = (target, value) => {
+        if (target.kind === 'form') { setFwdForm((form) => ({ ...form, autoStart: !!value })); return }
+        fwdAction('update', target.id, { autoStart: !!value })
+      }
+      // The semantics are not obvious on first use: explain once, with a
+      // "不再提示" opt-out stored in the browser.
+      const requestFwdAutoStart = (target, value, direction) => {
+        if (!value) { applyFwdAutoStart(target, false); return }
+        if (fwdNoticeDismissed(direction)) { applyFwdAutoStart(target, true); return }
+        setFwdNoticeDontShow(false)
+        setFwdNotice({ target, direction })
+      }
+      const confirmFwdNotice = () => {
+        if (!fwdNotice) return
+        if (fwdNoticeDontShow) dismissFwdNotice(fwdNotice.direction)
+        applyFwdAutoStart(fwdNotice.target, true)
+        setFwdNotice(null)
       }
       const fwdDefine = () => {
         if (!fwdForm.listenPort) return
@@ -2254,11 +2533,6 @@ window.__ModuleLoader__.load({
       // first thing the page shows, because that is the whole list a VSCode
       // Remote-SSH user expects. A saved alias machine hides its file entry (the row
       // below it is the same host, with the actions that belong to a saved machine).
-      const savedAliases = new Set(machines.filter((m) => m.useSshConfig).map((m) => String(m.host)))
-      const discovered = (sshHosts || []).filter((h) => !savedAliases.has(String(h.alias || h.host)))
-
-      // Keep row order stable while connectivity results arrive.
-      const sortedMachines = [...machines].sort((a, b) => String(a.name || a.host).localeCompare(String(b.name || b.host)))
 
       // One filter box for BOTH halves of the list (ssh-config hosts + saved ones).
       const needle = hostFilter.trim().toLowerCase()
@@ -2280,6 +2554,27 @@ window.__ModuleLoader__.load({
       return React.createElement('div',
         { className: 'dsh-rw-settings', 'data-rw-settings': true, 'aria-label': tr('settings.title'), style: { color: T.label } },
         confirmUi.node,
+        fwdNotice ? React.createElement('div', {
+          style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 },
+        },
+        React.createElement('div', {
+          role: 'dialog', 'aria-modal': 'true',
+          'aria-label': tr(fwdNotice.direction === 'reverse' ? 'settings.fwdAutoNoticeTitleReverse' : 'settings.fwdAutoNoticeTitle'),
+          className: 'dsh-rw-forward-notice',
+          style: { width: 480, maxWidth: '92vw', background: T.bg, border: '1px solid ' + T.border, borderRadius: 12, padding: '18px 20px', boxShadow: '0 16px 48px rgba(0,0,0,0.35)', color: T.label },
+        },
+        React.createElement('div', { style: { fontSize: 15, fontWeight: 650, letterSpacing: '-0.01em', marginBottom: 10 } }, tr(fwdNotice.direction === 'reverse' ? 'settings.fwdAutoNoticeTitleReverse' : 'settings.fwdAutoNoticeTitle')),
+        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+          tr(fwdNotice.direction === 'reverse' ? 'settings.fwdAutoNoticeBodyReverse' : 'settings.fwdAutoNoticeBody').split('\n\n').map((paragraph, index) => React.createElement('div', {
+            key: index,
+            style: { fontSize: 12.5, lineHeight: 1.6, color: index === 0 ? T.label : T.muted },
+          }, paragraph))),
+        React.createElement('label', { style: { display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, marginTop: 16 } },
+          React.createElement('input', { type: 'checkbox', checked: fwdNoticeDontShow, onChange: (e) => setFwdNoticeDontShow(!!e.target.checked) }),
+          tr('settings.fwdAutoNoticeDontShow')),
+        React.createElement('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 } },
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '4px 14px' }, onClick: () => setFwdNotice(null) }, tr('settings.fwdAutoNoticeCancel')),
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn dsh-rw-primary', style: { ...primaryBtnS, padding: '4px 14px' }, onClick: confirmFwdNotice }, tr('settings.fwdAutoNoticeConfirm'))))) : null,
         React.createElement('div', { style: { fontSize: 16, fontWeight: 650, letterSpacing: '-0.01em' } }, tr('settings.pageTitle')),
         React.createElement('div', { style: { fontSize: 12, opacity: 0.8, lineHeight: 1.55 } },
           tr('settings.intro')),
@@ -2463,14 +2758,7 @@ window.__ModuleLoader__.load({
               React.createElement('label', { style: { fontSize: 12, display: 'flex', gap: 4, alignItems: 'center' } },
                 React.createElement('input', { type: 'checkbox', checked: form.keyboardInteractive, onChange: setFb('keyboardInteractive') }), tr('settings.keyboardInteractive')),
               React.createElement('label', { style: { fontSize: 12, display: 'flex', gap: 4, alignItems: 'center' } },
-                React.createElement('input', { type: 'checkbox', checked: form.x11Forward, onChange: setFb('x11Forward') }), tr('settings.x11Forward')),
-              React.createElement('label', { style: { fontSize: 12, display: 'flex', gap: 4, alignItems: 'center' } },
                 React.createElement('input', { type: 'checkbox', checked: form.encryptPassword, onChange: setFb('encryptPassword') }), tr('settings.encryptPassword'))),
-            form.x11Forward
-              ? row(tr('settings.x11Display'), React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1 } },
-                  React.createElement('input', { value: form.x11Display || '', onChange: setF('x11Display'), placeholder: tr('settings.x11DisplayPlaceholder'), style: inputS }),
-                  React.createElement('span', { style: { fontSize: 11, color: T.muted, lineHeight: 1.5 } }, tr('settings.x11Hint'))), 'x11d')
-              : null,
             row(tr('settings.proxyHost'), React.createElement('input', { value: form.proxyHost, onChange: setF('proxyHost'), placeholder: 'Route through this host (optional)', style: inputS }), 'ph'),
             row(tr('settings.proxyPortUser'), React.createElement('div', { style: { display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' } },
               React.createElement('input', { value: form.proxyPort, onChange: setF('proxyPort'), placeholder: 'Port (22)', style: { ...inputS, minWidth: 90, maxWidth: 120 } }),
@@ -2555,23 +2843,70 @@ window.__ModuleLoader__.load({
         React.createElement('div', { style: boxS },
           sectionToggle(fwdOpen, setFwdOpen, tr('settings.forwards')),
           fwdOpen ? React.createElement(React.Fragment, null,
-            forwards.length ? forwards.map((f) => React.createElement('div', { key: f.id, className: 'dsh-rw-row', style: { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', fontSize: 12, fontFamily: 'monospace' } },
-              React.createElement('span', { style: { color: f.active ? T.ok : T.muted } }, f.active ? '●' : '○'),
-              React.createElement('span', { style: { flex: 1 } }, `${f.direction} 127.0.0.1:${f.listenPort} → ${f.targetHost}:${f.targetPort}${f.autoStart ? ' [auto]' : ''}`),
-              f.active
-                ? React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: () => fwdAction('stop', f.id) }, tr('settings.fwdStop'))
-                : React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: () => fwdAction('start', f.id) }, tr('settings.fwdStart')),
-              React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: () => fwdAction('remove', f.id) }, tr('settings.fwdRemove')))) : null,
-            React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' } },
-              React.createElement('select', { className: 'dsh-rw-input', value: fwdForm.direction, onChange: (e) => setFwdForm({ ...fwdForm, direction: e.target.value }), style: { ...inputS, maxWidth: 110 } },
-                React.createElement('option', { value: 'local' }, tr('settings.fwdDirLocal')),
-                React.createElement('option', { value: 'reverse' }, tr('settings.fwdDirReverse'))),
-              React.createElement('input', { className: 'dsh-rw-input', value: fwdForm.listenPort, onChange: (e) => setFwdForm({ ...fwdForm, listenPort: e.target.value }), placeholder: tr('settings.fwdListen'), style: { ...inputS, maxWidth: 90 } }),
-              React.createElement('input', { className: 'dsh-rw-input', value: fwdForm.targetHost, onChange: (e) => setFwdForm({ ...fwdForm, targetHost: e.target.value }), placeholder: tr('settings.fwdTargetHost'), style: { ...inputS, maxWidth: 120 } }),
-              React.createElement('input', { className: 'dsh-rw-input', value: fwdForm.targetPort, onChange: (e) => setFwdForm({ ...fwdForm, targetPort: e.target.value }), placeholder: tr('settings.fwdTargetPort'), style: { ...inputS, maxWidth: 90 } }),
-              React.createElement('label', { style: { fontSize: 12, display: 'flex', gap: 4, alignItems: 'center' } },
-                React.createElement('input', { type: 'checkbox', checked: fwdForm.autoStart, onChange: (e) => setFwdForm({ ...fwdForm, autoStart: e.target.checked }) }), tr('settings.fwdAuto')),
+            React.createElement('div', { style: { opacity: 0.65, fontSize: 11, lineHeight: 1.5, marginBottom: 8 } }, tr('settings.forwardsHint')),
+            forwards.length ? forwards.map((f) => {
+              const busy = !!fwdBusy[f.id]
+              return React.createElement('div', { key: f.id, className: 'dsh-rw-row', style: { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', fontSize: 12, fontFamily: 'monospace' } },
+                React.createElement('span', { style: { color: f.active ? T.ok : T.muted } }, f.active ? '●' : '○'),
+                React.createElement('span', {
+                  title: f.direction === 'reverse' ? tr('settings.fwdDirReverse') : tr('settings.fwdDirLocal'),
+                  style: { flex: '0 0 auto', color: T.muted, opacity: 0.85 },
+                }, f.direction === 'reverse' ? '-R' : '-L'),
+                React.createElement('span', {
+                  title: tr(f.direction === 'reverse' ? 'settings.fwdReverseHint' : 'settings.fwdLocalHint'),
+                  style: { flex: 1 },
+                }, `127.0.0.1:${f.listenPort} → ${f.targetHost}:${f.targetPort}`),
+                f.needsReconsent ? React.createElement('span', {
+                  title: tr('settings.fwdLegacyHint'),
+                  style: { fontSize: 10, color: T.warn, border: '1px solid ' + T.border, borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' },
+                }, tr('settings.fwdLegacyBadge')) : null,
+                React.createElement('label', {
+                  style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: T.muted, whiteSpace: 'nowrap' },
+                  title: tr('settings.fwdAutoHint'),
+                },
+                React.createElement('input', {
+                  type: 'checkbox',
+                  checked: !!f.autoStart,
+                  disabled: busy,
+                  'aria-label': tr('settings.fwdAuto'),
+                  onChange: (e) => requestFwdAutoStart({ kind: 'row', id: f.id }, !!e.target.checked, f.direction),
+                }),
+                tr('settings.fwdAuto')),
+                f.active
+                  ? React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, disabled: busy, onClick: () => fwdAction('stop', f.id) }, tr('settings.fwdStop'))
+                  : React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, disabled: busy, onClick: () => fwdAction('start', f.id) }, busy ? tr('settings.fwdStarting') : tr('settings.fwdStart')),
+                React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, disabled: busy, onClick: () => fwdAction('remove', f.id) }, tr('settings.fwdRemove')))
+            }) : null,
+            React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' } },
+              React.createElement('div', {
+                role: 'group', 'aria-label': tr('settings.forwards'),
+                style: { display: 'flex', alignItems: 'stretch', flex: '0 0 auto', height: 30, border: '1px solid ' + T.border, borderRadius: T.radius, overflow: 'hidden' },
+              },
+              ['local', 'reverse'].map((value) => React.createElement('button', {
+                key: value, type: 'button',
+                'aria-pressed': fwdForm.direction === value,
+                onClick: () => setFwdForm({ ...fwdForm, direction: value }),
+                style: {
+                  border: 'none', cursor: 'pointer', padding: '0 8px', fontSize: 11, whiteSpace: 'nowrap',
+                  background: fwdForm.direction === value ? T.primary : 'transparent',
+                  color: fwdForm.direction === value ? T.onPrimary : T.muted,
+                },
+              }, tr(value === 'local' ? 'settings.fwdSideLocal' : 'settings.fwdSideReverse')))),
+              React.createElement('input', { className: 'dsh-rw-input', value: fwdForm.listenPort, onChange: (e) => setFwdForm({ ...fwdForm, listenPort: e.target.value }), placeholder: tr('settings.fwdListen'), style: { ...inputS, flex: '0 0 90px', width: 90, minWidth: 0, boxSizing: 'border-box', padding: '6px 8px' } }),
+              React.createElement('span', { style: { opacity: 0.55, fontSize: 12, flex: '0 0 auto' } }, '→'),
+              React.createElement('input', { className: 'dsh-rw-input', value: fwdForm.targetHost, onChange: (e) => setFwdForm({ ...fwdForm, targetHost: e.target.value }), placeholder: tr('settings.fwdTargetHost'), style: { ...inputS, flex: '1 1 100px', width: 'auto', minWidth: 90, maxWidth: 240, boxSizing: 'border-box', padding: '6px 8px' } }),
+              React.createElement('span', { style: { opacity: 0.55, fontSize: 12, flex: '0 0 auto' } }, ':'),
+              React.createElement('input', { className: 'dsh-rw-input', value: fwdForm.targetPort, onChange: (e) => setFwdForm({ ...fwdForm, targetPort: e.target.value }), placeholder: tr('settings.fwdTargetPort'), style: { ...inputS, flex: '0 0 72px', width: 72, minWidth: 0, boxSizing: 'border-box', padding: '6px 8px' } })),
+            // Fields on their own row, then the option + primary action: this is
+            // the plugin's existing form pattern (.dsh-rw-settings-editor-actions
+            // right-aligns its primary button), and it keeps 添加转发 from sitting
+            // alone on a wrapped third line.
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 } },
+              React.createElement('label', { style: { fontSize: 12, display: 'flex', gap: 4, alignItems: 'center', whiteSpace: 'nowrap' } },
+                React.createElement('input', { type: 'checkbox', checked: fwdForm.autoStart, onChange: (e) => requestFwdAutoStart({ kind: 'form' }, !!e.target.checked, fwdForm.direction) }), tr('settings.fwdAuto')),
               React.createElement('button', { type: 'button', className: 'dsh-rw-btn dsh-rw-primary', style: primaryBtnS, onClick: fwdDefine, disabled: !fwdForm.listenPort, title: fwdForm.listenPort ? tr('settings.fwdAddHint') : tr('settings.fwdNeedsPort') }, tr('settings.fwdAdd'))),
+            React.createElement('div', { style: { opacity: 0.6, fontSize: 11, lineHeight: 1.5, marginTop: 6 } },
+              tr(fwdForm.direction === 'reverse' ? 'settings.fwdReverseHint' : 'settings.fwdLocalHint')),
           ) : null,
         ),
         React.createElement('div', { style: boxS },
@@ -2820,18 +3155,10 @@ window.__ModuleLoader__.load({
       const needle = query.trim().toLowerCase()
       const matches = (...fields) => !needle || fields.some((f) => String(f || '').toLowerCase().includes(needle))
       const sorted = machines.slice().sort((a, b) => (Date.parse(b.lastConnectedAt) || 0) - (Date.parse(a.lastConnectedAt) || 0))
-      // Recent projects are intentionally disabled: this picker lists hosts
-      // only, so opening workspaces never accumulates a duplicate history.
-      const recentProjects = []
-      const savedNames = new Set(machines.map((m) => String(m.name || m.host || '').toLowerCase()))
-      const savedHosts = new Set(machines.map((m) => String(m.host || '').toLowerCase()))
-      const aliases = new Set(machines.filter((m) => m.useSshConfig).map((m) => String(m.host || '').toLowerCase()))
-      const discovered = (hosts || []).filter((h) => {
-        const alias = String(h.alias || h.host || '').toLowerCase()
-        const hostName = String(h.hostName || h.host || '').toLowerCase()
-        if (savedNames.has(alias) || savedHosts.has(alias) || savedHosts.has(hostName)) return false
-        return !aliases.has(alias) && matches(h.alias, h.hostName, h.host, h.user)
-      })
+      const recentProjects = sorted.flatMap((m) => (m.recentWorkspaces || []).filter((p) => matches(m.name, m.host, p)).map((path) => ({ machine: m, path })))
+      // The picker keeps every saved record too; only discovered aliases are
+      // deduped or hidden behind a saved SSH identity / exact alias.
+      const discovered = dedupeDiscoveredForSaved(hosts || [], sorted).filter((h) => matches(h.alias, h.hostName, h.host, h.user))
       const saved = sorted.filter((m) => matches(m.name, m.host, m.username))
       const chooseAlias = async (h) => {
         if (busy || opening) return
@@ -2857,20 +3184,11 @@ window.__ModuleLoader__.load({
           React.createElement('span', { style: { fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, title),
           React.createElement('span', { style: { fontSize: 11, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, subtitle)),
         React.createElement('span', { 'aria-hidden': true, style: { color: T.muted } }, '›'))
-      const hostTile = (key, title, subtitle, action) => React.createElement('button', {
-        key, type: 'button', className: 'dsh-rw-host-tile dsh-rw-btn', disabled: busy || !!opening,
-        onClick: action, title: title + '\n' + subtitle,
-        style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '9px 10px', minHeight: 58, boxSizing: 'border-box', border: '1px solid ' + T.border, borderRadius: 8, background: 'transparent', color: T.label, cursor: 'pointer', textAlign: 'left', width: '100%', overflow: 'hidden' },
-      },
-        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0 } },
-          React.createElement('span', { style: { flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: '.5px', color: T.muted, border: '1px solid ' + T.border, borderRadius: 3, padding: '1px 4px' } }, 'SSH'),
-          React.createElement('span', { style: { fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } }, title)),
-        React.createElement('span', { style: { fontSize: 11, color: T.muted, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, subtitle))
       const heading = (text) => React.createElement('div', { style: { padding: '10px 12px 4px', fontSize: 11, fontWeight: 600, color: T.muted } }, text)
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', minHeight: 0, gap: 8 } },
         React.createElement('input', { className: 'dsh-rw-input', 'data-modal-autofocus': true, 'aria-label': tr('project.search'), placeholder: tr('project.search'), value: query, disabled: busy || !!opening,
           onChange: (e) => setQuery(e.target.value), onKeyDown: (e) => { if (e.key === 'ArrowDown' && !e.isComposing) { e.preventDefault(); listRef.current && listRef.current.querySelector('button:not(:disabled)')?.focus() } }, style: { ...inputS, width: '100%', boxSizing: 'border-box' } }),
-        React.createElement('div', { ref: listRef, style: { overflowY: 'auto', minHeight: 0, maxHeight: 'min(300px, 44vh)', border: '1px solid ' + T.border, borderRadius: 8 },
+        React.createElement('div', { ref: listRef, style: { overflowY: 'auto', minHeight: 180, maxHeight: 'min(340px, 48vh)', border: '1px solid ' + T.border, borderRadius: 8 },
           onKeyDown: (e) => {
             if (e.isComposing || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
             const rows = Array.from(e.currentTarget.querySelectorAll('button:not(:disabled)'))
@@ -2884,10 +3202,8 @@ window.__ModuleLoader__.load({
           recentProjects.length ? heading(tr('project.recent')) : null,
           recentProjects.map(({ machine: m, path }) => result('project:' + m.id + ':' + path, path.split(/[\\/]/).filter(Boolean).pop() || path, (m.name || m.host) + ' · ' + path, () => onProject(m, path))),
           saved.length || discovered.length ? heading(tr('project.hosts')) : null,
-          saved.length || discovered.length ? React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 8, padding: 8 } },
-            saved.map((m) => hostTile('host:' + m.id, m.name || m.host, (m.username ? m.username + '@' : '') + m.host, () => onMachine(m))),
-            discovered.map((h) => hostTile('ssh:' + (h.alias || h.host), h.alias || h.host, (h.user ? h.user + '@' : '') + (h.hostName || h.host || h.alias), () => chooseAlias(h))),
-          ) : null,
+          saved.map((m) => result('host:' + m.id, m.name || m.host, (m.username ? m.username + '@' : '') + m.host, () => onMachine(m))),
+          discovered.map((h) => result('ssh:' + (h.alias || h.host), h.alias || h.host, (h.user ? h.user + '@' : '') + (h.hostName || h.host || h.alias), () => chooseAlias(h))),
           hosts === null || registryLoading ? React.createElement('div', { role: 'status', style: { padding: 12, color: T.muted, fontSize: 12 } }, tr('settings.hostListLoading')) : null,
           hosts !== null && !registryLoading && !error && !saved.length && !discovered.length && !recentProjects.length ? React.createElement('div', { style: { padding: 16, fontSize: 12, color: T.muted } }, tr(needle ? 'project.noMatches' : 'project.noHosts')) : null,
         ),
@@ -3033,6 +3349,13 @@ window.__ModuleLoader__.load({
         const cands = [{ host: String(m.host || ''), port: Number(m.port) || 22, username: String(m.username || '') }]
         const r = m.sshConfigResolved
         if (r && r.host) cands.push({ host: String(r.host), port: Number(r.port) || 22, username: String(r.username || m.username || '') })
+        // System OpenSSH hands the alias to ssh and deliberately emits no -l/-p.
+        // Its pool echo is therefore alias/22/'' even when the registry and
+        // resolved config name a concrete user and a non-default SSH Port.
+        // Accept that exact transport identity without making '' a wildcard.
+        const aliasOpenssh = String(m.backend || '').toLowerCase() === 'openssh'
+          && (m.useSshConfig || (r && r.matched))
+        if (aliasOpenssh) cands.push({ host: String(m.host || ''), port: 22, username: '' })
         return cands.some((c) => c.host === String(echo.host) && c.port === (Number(echo.port) || 22) && c.username === String(echo.username || ''))
       }
 
@@ -3311,7 +3634,7 @@ window.__ModuleLoader__.load({
         else { parent = t.slice(0, idx) || '/'; lastSeg = t.slice(idx + 1) }
         suggestFrom(id, parent || '/', (node) => node.dirs
           .filter((it) => !lastSeg || it.name.toLowerCase().startsWith(String(lastSeg).toLowerCase()))
-          .map((it) => ({ path: it.path, name: it.name, dir: true })))
+          .map((it) => it.path))
       }
 
       const onPathChange = (raw) => {
@@ -3327,16 +3650,15 @@ window.__ModuleLoader__.load({
         // Expanding a just-selected directory is a NAVIGATION step: the caching
         // spec only sanctions "typing inside one parent directory, local
         // filtering", so fetch fresh instead of serving up to 30s-stale entries.
-        suggestFrom(machineId, target, (node) => node.all.map((it) => ({ path: it.path, name: it.name, dir: it.dir })), true)
+        suggestFrom(machineId, target, (node) => node.all.map((it) => it.path), true)
       }
 
       const selectSuggestion = (s) => {
-        const target = typeof s === 'string' ? s : (s && s.path)
-        if (!target) { setSuggestOpen(false); return }
+        if (!s) { setSuggestOpen(false); return }
         // Auto-append the trailing separator so the path reads as a directory
         // and the user can keep typing the next segment right away.
-        const sep = String(target).includes('\\') ? '\\' : '/'
-        const withSep = String(target).replace(/[\\/]+$/, '') + sep
+        const sep = String(s).includes('\\') ? '\\' : '/'
+        const withSep = String(s).replace(/[\\/]+$/, '') + sep
         setPath(withSep); setErr(''); setSuggestOpen(false)
         continueSuggest(withSep)
       }
@@ -3351,6 +3673,33 @@ window.__ModuleLoader__.load({
           const res = await api('POST', '/dsh-remote/mirror', { path: target, machineId: selectedMachineId, registerWorkspace: registerWorkspace !== false }, signal)
           if (!current()) return
           if (!res || !res.localMirror) throw new Error((res && res.error) || tr('project.failed'))
+          // dsh-remote-fix2: mirror-cache — record the mirror BEFORE the host adopts it.
+          // `localWorkspaceSession()` classifies a session as local when its
+          // cwd is outside every cached mirror, and the host rejects local
+          // requests for a mirror it binds remotely (409 "Workspace execution
+          // context changed"). The registry here is normally loaded once at
+          // startup, so a mirror created a second ago is missing from it: the
+          // first requests of the new session would be misclassified. Adding
+          // the entry now makes the new session remote from request one; the
+          // delayed refresh below then replaces it with the on-disk record.
+          const newMirror = res.machine || {}
+          const newMirrorDir = String(res.localMirror || '')
+          mirrorGeneration += 1 // supersede any registry request started before this mutation
+          if (newMirrorDir && !MIRRORS.list.some((m) => m && sameMirrorDir(m.dir, newMirrorDir))) {
+            MIRRORS.list.push({
+              dir: newMirrorDir,
+              host: String(newMirror.host || ''),
+              port: Number(newMirror.port) || 22,
+              username: String(newMirror.username || ''),
+              remotePath: String(res.path || target),
+              alias: '',
+              name: '',
+            })
+          }
+          // Keep loaded/error tied to the latest authoritative GET. An optimistic
+          // entry is confirmed, but a partial or failed registry is not healthy.
+          notifyMirrors()
+          setTimeout(() => { void refreshMirrors() }, 2000)
           await onPicked(res.localMirror, res.path || target)
         })
       }
@@ -3447,11 +3796,11 @@ window.__ModuleLoader__.load({
                     key: it.path || i, title: tr('picker.enterDir', { name: it.name }),
                     onClick: () => loadLocal(it.path),
                     className: 'dsh-rw-list-item',
-                    style: { padding: '7px 12px 7px 26px', cursor: 'pointer', color: T.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, borderBottom: '1px solid ' + T.border, borderLeft: '1px solid ' + T.border },
+                    style: { padding: '7px 12px', cursor: 'pointer', color: T.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, borderBottom: '1px solid ' + T.border },
                   },
                     // Same folder glyph as everywhere else when the host ships
                     // FileTypeIcon; the emoji stays as the no-primitive fallback.
-                    React.createElement('span', { style: { display: 'inline-flex', flexShrink: 0 } }, IconFolder(false)),
+                    React.createElement('span', { style: { display: 'inline-flex', flexShrink: 0 } }, HostFileTypeIcon ? React.createElement(HostFileTypeIcon, { kind: 'folder', size: 14 }) : '📁'),
                     React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, it.name),
                   )) : React.createElement('div', { style: { opacity: 0.6, padding: 12 } }, tr('picker.noSubdir'))),
               cur.truncated ? React.createElement('div', { style: { opacity: 0.6, padding: '6px 12px', fontSize: 11 } }, tr('picker.truncated')) : null,
@@ -3487,7 +3836,7 @@ window.__ModuleLoader__.load({
                   onClick: it.dir ? () => enterDir(it) : undefined,
                   onKeyDown: it.dir ? (e) => { if (!e.isComposing && e.keyCode !== 229 && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); enterDir(it) } } : undefined,
                   className: it.dir ? 'dsh-rw-list-item' : undefined,
-                  style: { padding: '6px 10px 6px 26px', minHeight: 32, boxSizing: 'border-box', cursor: it.dir ? 'pointer' : 'default', color: T.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, borderBottom: '1px solid ' + T.border, borderLeft: '1px solid ' + T.border },
+                  style: { padding: '6px 10px', minHeight: 32, boxSizing: 'border-box', cursor: it.dir ? 'pointer' : 'default', color: T.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, borderBottom: '1px solid ' + T.border },
                 },
                   React.createElement('span', { style: { flexShrink: 0, display: 'inline-flex', color: T.label, fontSize: 13 } }, it.drive ? '💽' : (it.dir
                     ? IconFolder()
@@ -3696,9 +4045,7 @@ window.__ModuleLoader__.load({
                       // Issue #52 defect 1, local belt-and-braces: swallow the
                       // gesture so no ancestor (least of all the backdrop) can
                       // observe a click that began on a suggestion.
-                      suggest.map((s, i) => React.createElement('div', { key: s.path + i, id: suggestListId + '-' + i, role: 'option', 'aria-selected': i === activeSuggestion, onMouseEnter: () => setSuggestIndex(i), className: 'dsh-rw-list-item', onMouseDown: (e) => { e.preventDefault(); e.stopPropagation(); selectSuggestion(s) }, style: { padding: '6px 10px 6px 26px', background: i === activeSuggestion ? T.hoverBg : undefined, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 8, borderLeft: '1px solid ' + T.border }, title: s.path },
-                        React.createElement('span', { style: { display: 'inline-flex', flexShrink: 0 } }, s.dir ? IconFolder(false) : IconFile(s.name)),
-                        React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, s.name || s.path))),
+                      suggest.map((s, i) => React.createElement('div', { key: s + i, id: suggestListId + '-' + i, role: 'option', 'aria-selected': i === activeSuggestion, onMouseEnter: () => setSuggestIndex(i), className: 'dsh-rw-list-item', onMouseDown: (e) => { e.preventDefault(); e.stopPropagation(); selectSuggestion(s) }, style: { padding: '6px 10px', background: i === activeSuggestion ? T.hoverBg : undefined, cursor: 'pointer', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, s)),
                     )
                   : React.createElement('div', { style: { padding: '24px 16px', color: T.muted, fontSize: 12, lineHeight: 1.6, textAlign: 'center' } }, tr('picker.suggestionsHint')),
                 ) : null,
@@ -3794,7 +4141,34 @@ window.__ModuleLoader__.load({
       return api('POST', EXPLORER_AUTO_OPEN_ROUTE, { enabled: on }).catch(() => null)
     }
 
+    // A registry read at least once, plus the session's own cwd, proves local vs
+    // remote. `known` rather than `loaded` is deliberate: `refreshMirrors()`
+    // clears `loaded` while /bindings is in flight, and classifying against that
+    // window demoted a local session to "remote with no root" mid-refresh, which
+    // reset the pane and discarded the refresh the user had just asked for.
+    // Registry failure still never turns an unrecognised mirror into local.
+    function localWorkspaceSession(sessionId) {
+      const cwd = sessionCwdFor(sessionId)
+      return !!(cwd && MIRRORS.known && !MIRRORS.error && !mirrorForCwd(cwd, MIRRORS.list))
+    }
+    function workspaceText(key, sessionId, params) {
+      return tr(localWorkspaceSession(sessionId) && L.en['local.' + key] ? 'local.' + key : key, params)
+    }
+    function workspaceSummary(sessionId) {
+      const cwd = sessionCwdFor(sessionId)
+      const remote = mirrorForCwd(cwd, MIRRORS.list)
+      if (remote) return remote
+      return localWorkspaceSession(sessionId) ? { local: true, remotePath: cwd, name: workspaceText('workbench.remote', sessionId) } : null
+    }
+    function workspaceMemoryKey(sessionId) {
+      return localWorkspaceSession(sessionId) ? 'local:' + sessionCwdFor(sessionId) + ':' + sessionId : String(sessionId || '')
+    }
+    function fetchWorkspaceContext(sessionId) {
+      return api('GET', '/dsh-remote/workspace-context?sessionId=' + encodeURIComponent(sessionId))
+    }
+
     function fetchRemoteStatus(sessionId) {
+      if (localWorkspaceSession(sessionId)) return fetchWorkspaceContext(sessionId).then(value => ({ ...value, local: true, connected: true, workspace: value.root })).catch(() => null)
       return api('GET', withSessionQuery('/dsh-remote/status', sessionId)).catch(() => null)
     }
 
@@ -3844,9 +4218,13 @@ window.__ModuleLoader__.load({
     // Failure is not fatal and not retried in a loop: no registry means no
     // badge, which is exactly what a user with zero mirrors sees.
 
-    const MIRRORS = { list: [], loaded: false, error: '' }
+    // `loaded` is cleared for the duration of a forced refresh; `known` latches
+    // on the first successful read, so "which workspace is this?" does not
+    // depend on a /bindings round-trip being in flight.
+    const MIRRORS = { list: [], loaded: false, known: false, error: '' }
     const mirrorWatchers = new Set()
-    let mirrorLoad = null
+    let mirrorLoad = null // { generation, promise } for the current request only
+    let mirrorGeneration = 0
     let mirrorTimer = null
 
     const notifyMirrors = () => {
@@ -3855,25 +4233,51 @@ window.__ModuleLoader__.load({
     /** Load the mirror registry once (concurrent callers share the request). */
     function ensureMirrors() {
       if (MIRRORS.loaded) return Promise.resolve(MIRRORS)
-      if (mirrorLoad) return mirrorLoad
-      mirrorLoad = api('GET', '/dsh-remote/bindings')
+      if (mirrorLoad && mirrorLoad.generation === mirrorGeneration) return mirrorLoad.promise
+      const generation = ++mirrorGeneration
+      const promise = api('GET', '/dsh-remote/bindings')
         .then((r) => {
+          if (generation !== mirrorGeneration) return MIRRORS
           MIRRORS.list = (r && Array.isArray(r.mirrors)) ? r.mirrors : []
           MIRRORS.error = ''
+          MIRRORS.known = true
         })
-        .catch((e) => { MIRRORS.error = String((e && e.message) || e) })
+        .catch((e) => {
+          if (generation === mirrorGeneration) MIRRORS.error = String((e && e.message) || e)
+        })
         .then(() => {
-          MIRRORS.loaded = true
-          mirrorLoad = null
-          notifyMirrors()
+          if (generation === mirrorGeneration) {
+            MIRRORS.loaded = true
+            notifyMirrors()
+          }
+          // An old request must not clear the pointer of a newer one.
+          if (mirrorLoad && mirrorLoad.generation === generation) mirrorLoad = null
           return MIRRORS
         })
-      return mirrorLoad
+      mirrorLoad = { generation, promise }
+      return promise
     }
     /** Force a refresh (mirrors appear when a workspace is picked). */
     function refreshMirrors() {
       MIRRORS.loaded = false
+      mirrorGeneration += 1
       return ensureMirrors()
+    }
+
+    /** A client-safe path grammar: Windows drive/UNC paths fold case and
+     * separators; POSIX paths keep case and backslashes. */
+    function mirrorPathKey(value) {
+      const raw = String(value || '')
+      if (!raw) return { windows: false, key: '' }
+      // Detect the grammar BEFORE trimming: C:\ and UNC roots must stay
+      // Windows, while POSIX / remains a real root instead of an empty key.
+      const windows = /^(?:[a-z]:[\\/]|[a-z]:$|[\\/]{2})/i.test(raw)
+      const trimmed = raw.replace(/[\\/]+$/, '')
+      return { windows, key: windows ? trimmed.replace(/\\/g, '/').toLowerCase() : (trimmed || '/') }
+    }
+    function sameMirrorDir(a, b) {
+      const left = mirrorPathKey(a), right = mirrorPathKey(b)
+      return !!(left.key && right.key && left.windows === right.windows && left.key === right.key)
     }
     /**
      * The mirror containing a local path, or null.
@@ -3884,20 +4288,20 @@ window.__ModuleLoader__.load({
      * case-insensitively because the platform does.
      */
     function mirrorForCwd(cwd, mirrors) {
-      const raw = String(cwd || '')
-      if (!raw) return null
+      const base = mirrorPathKey(cwd)
+      if (!base.key) return null
       const list = Array.isArray(mirrors) ? mirrors : []
-      const isWin = raw.includes('\\')
-      const sep = isWin ? '\\' : '/'
-      const fold = (s) => (isWin ? s.toLowerCase() : s)
-      const base = fold(raw.replace(/[\\/]+$/, ''))
-      let best = null
+      let best = null, bestKey = ''
       for (const m of list) {
-        const dirRaw = String((m && m.dir) || '').replace(/[\\/]+$/, '')
-        if (!dirRaw) continue
-        const dir = fold(dirRaw)
-        if (base !== dir && !base.startsWith(dir + sep) && !base.startsWith(dir + '/')) continue
-        if (!best || dir.length > fold(String(best.dir).replace(/[\\/]+$/, '')).length) best = m
+        const dir = mirrorPathKey(m && m.dir)
+        if (!dir.key || dir.windows !== base.windows) continue
+        if (base.key !== dir.key) {
+          // POSIX root contains every absolute child (dir + '/' would be '//').
+          if (dir.key === '/') {
+            if (!base.key.startsWith('/')) continue
+          } else if (!base.key.startsWith(dir.key) || base.key.charAt(dir.key.length) !== '/') continue
+        }
+        if (dir.key.length > bestKey.length) { best = m; bestKey = dir.key }
       }
       return best
     }
@@ -4077,16 +4481,16 @@ window.__ModuleLoader__.load({
     }
 
     function readRemoteFile(path, maxBytes, sessionId) {
-      return api('POST', '/dsh-remote/read', withSessionBody({ path, maxBytes }, sessionId)).catch((e) => {
-        const error = new Error(tr('file.readFail', { msg: ((e && e.message) || e) }))
+      return ensureMirrors().then(() => api('POST', '/dsh-remote/read', withSessionBody({ path, maxBytes }, sessionId))).catch((e) => {
+        const error = new Error(workspaceText('file.readFail', sessionId, { msg: ((e && e.message) || e) }))
         error.code = e?.code; error.localCopy = e?.localCopy
         throw error
       })
     }
 
     function listRemoteDir(path, sessionId) {
-      return api('GET', withSessionQuery('/dsh-remote/ls?path=' + encodeURIComponent(path || ''), sessionId)).catch((e) => {
-        throw new Error(tr('file.listFail', { msg: ((e && e.message) || e) }))
+      return ensureMirrors().then(() => api('GET', withSessionQuery('/dsh-remote/ls?path=' + encodeURIComponent(path || ''), sessionId))).catch((e) => {
+        throw new Error(workspaceText('file.listFail', sessionId, { msg: ((e && e.message) || e) }))
       })
     }
 
@@ -4104,19 +4508,13 @@ window.__ModuleLoader__.load({
     // (fill: currentColor → follows the row text color, i.e. black on the
     // sidebar). The (open)/(name) parameters survive so call sites stay
     // meaningful on both paths.
-    const IconFolder = (open) => React.createElement('svg', {
-      width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none',
-      style: { flexShrink: 0, display: 'inline-block', verticalAlign: 'middle' }, 'aria-hidden': true,
-    },
-      React.createElement('path', {
-        d: 'M1.7 4.1c0-.9.72-1.6 1.6-1.6h2.6c.42 0 .82.16 1.13.45l.96.93h3.7c.9 0 1.6.72 1.6 1.6v5.6c0 .9-.72 1.6-1.6 1.6H3.3c-.88 0-1.6-.72-1.6-1.6V4.1Z',
-        fill: '#dcb67a', stroke: '#c7944b', strokeWidth: '0.7', strokeLinejoin: 'round',
-      }),
-      open ? React.createElement('path', {
-        d: 'M1.7 12.3l1.06-4.15c.2-.68.84-1.14 1.56-1.14H14.3c.4 0 .68.38.58.76l-.9 3.77c-.2.8-.9 1.36-1.72 1.36H2.5c-.44 0-.8-.36-.8-.8Z',
-        fill: '#f0c987', stroke: '#c7944b', strokeWidth: '0.7', strokeLinejoin: 'round',
-      }) : null,
-    )
+    const IconFolder = (open) => HostFileTypeIcon
+      ? React.createElement(HostFileTypeIcon, { kind: 'folder', size: 14 })
+      : React.createElement('svg', {
+        width: 14, height: 14, viewBox: '0 0 16 16', fill: 'currentColor', style: { flexShrink: 0 },
+      },
+        React.createElement('path', { d: 'M1.5 3.5A1.5 1.5 0 0 1 3 2h3.2a1.5 1.5 0 0 1 1.06.44L8.5 3.7h4.5A1.5 1.5 0 0 1 14.5 5.2V12A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V3.5Zm2.5 1a.5.5 0 0 0 0 1h1.2a.5.5 0 0 0 0-1H4Z' }),
+      )
     const IconFile = (name) => HostFileTypeIcon
       ? React.createElement(HostFileTypeIcon, { path: String(name || ''), size: 14 })
       : React.createElement('svg', {
@@ -4273,7 +4671,7 @@ window.__ModuleLoader__.load({
       // tab, which is where the resolved root becomes known.)
       const sharedKey = sharedExpanded.join('\u0000')
       React.useEffect(() => {
-        if (!evictShared) return
+        if (!evictShared || localWorkspaceSession(props.scope?.sessionId)) return
         const stray = strayRemoteSharedPaths('', sharedKey ? sharedKey.split('\u0000') : [])
         for (const p of stray) evictShared(p)
       }, [sharedKey, evictShared])
@@ -4284,7 +4682,7 @@ window.__ModuleLoader__.load({
       return React.createElement(RemoteExplorerTab, {
         ...owned,
         evictStray: (root) => {
-          if (!evictShared || !sharedExpanded.length) return []
+          if (!evictShared || !sharedExpanded.length || localWorkspaceSession(props.scope?.sessionId)) return []
           const stray = strayRemoteSharedPaths(root, sharedExpanded)
           for (const p of stray) evictShared(p)
           return stray
@@ -4316,43 +4714,18 @@ window.__ModuleLoader__.load({
         setPending(true); setError('')
         try {
           const right = SIDEBAR_RIGHT
-          const bs = BETTER_SIDEBAR
           const terminals = WEB_TERMINALS
-          const betterTab = bs && typeof bs.openTab === 'function' && typeof bs.getTab === 'function'
-            ? bs.getTab('terminal-bottom')
-            : undefined
-          const betterEnabled = !!betterTab && typeof terminals.selectShell === 'function' && (typeof bs.isTabEnabled !== 'function' || bs.isTabEnabled('terminal-bottom'))
-          if (!terminals || (!right && !betterEnabled)) throw new Error(tr('workbench.terminalUnavailable'))
+          if (!right || !terminals || typeof terminals.launchShells !== 'function') throw new Error(workspaceText('workbench.terminalUnavailable', sessionId))
           const choices = await terminals.launchShells(sessionId, controller.signal)
           if (controller.signal.aborted) return
-          const shell = (choices.shells || []).find((s) => s.name === 'remote ssh' || /(^|[\\/])remote ssh(?:\.cmd)?$/i.test(s.path || ''))
-          if (!shell) throw new Error(tr('workbench.terminalUnavailable'))
-          // dsh-better-sidebar owns its own terminal page (bottom workbench).
-          // Reuse it instead of the host's right-column terminal, but create the
-          // new shell through the host's selected-shell slot so the launcher's
-          // own `remote ssh` path (and therefore X11 forwarding) is preserved.
-          if (betterEnabled) {
-            try {
-              const previousShell = String(choices.selectedShell || '')
-              if (typeof terminals.selectShell === 'function') {
-                terminals.selectShell(shell.path)
-                // The host allocates the terminal eagerly when the new tab
-                // mounts; restore the user's prior shell shortly afterwards so
-                // this remote-only choice does not become the global default.
-                if (previousShell && previousShell !== shell.path) {
-                  setTimeout(() => { try { terminals.selectShell(previousShell) } catch { /* service gone */ } }, 5000)
-                }
-              }
-              bs.openTab({ type: 'terminal-bottom', title: tr('workbench.remoteTerminalTab') }, { sessionId })
-              return
-            } catch (betterError) {
-              if (!right) throw betterError
-              // The better-sidebar terminal page refused (disabled/absent tab
-              // type): fall through to the host's own terminal tab.
-            }
-          }
-          if (!right) throw new Error(tr('workbench.terminalUnavailable'))
           if (right.mounted && typeof right.mounted.getSnapshot === 'function' && right.mounted.getSnapshot() !== sessionId) return
+          const shells = choices.shells || []
+          const isRemote = s => s.name === 'remote ssh' || /(^|[\\/])remote ssh(?:\.cmd)?$/i.test(s.path || '')
+          const local = localWorkspaceSession(sessionId)
+          const shell = local
+            ? shells.find(s => !isRemote(s) && (s.path === choices.selectedShell || s.name === choices.selectedShell)) || shells.find(s => !isRemote(s))
+            : shells.find(isRemote)
+          if (!shell) throw new Error(workspaceText('workbench.terminalUnavailable', sessionId))
           right.openTab('terminal', { params: { shellPath: shell.path } })
         } catch (e) { if (!controller.signal.aborted) setError(String(e.message || e)) }
         finally { if (lifetime.current === controller) { lifetime.current = null; setPending(false) } }
@@ -4465,8 +4838,9 @@ window.__ModuleLoader__.load({
     }
 
     function RemoteExplorerTab(props) {
+      const tr = (key, params) => workspaceText(key, props.scope?.sessionId, params)
       const [status, setStatus] = React.useState(null)
-      const [root, setRoot] = React.useState('') // remote root path for this session
+      const [root, setRoot] = React.useState('') // execution-world project root for this session
       const [data, setData] = React.useState({}) // dir -> { entries | error | loading }
       const dataRef = React.useRef(data)
       const [err, setErr] = React.useState('')
@@ -4511,7 +4885,7 @@ window.__ModuleLoader__.load({
         setData(dataRef.current)
       }
 
-      const viewKey = String(sessionId || '') + '\0' + String(scopeCwd || '')
+      const viewKey = workspaceMemoryKey(sessionId) + '\0' + String(scopeCwd || '')
       const viewRef = React.useRef({ key: viewKey, requests: new Map() })
       if (viewRef.current.key !== viewKey) {
         viewRef.current = { key: viewKey, requests: new Map() }
@@ -4537,7 +4911,7 @@ window.__ModuleLoader__.load({
         const request = {}
         view.requests.set(dir, request)
         const current = () => viewRef.current === view && view.requests.get(dir) === request
-        storeLevel(dir, { ...existing, loading: true })
+        if (!opts?.quiet || !existing?.entries) storeLevel(dir, { ...existing, loading: true })
         return listRemoteDir(dir, sessionId)
           .then((res) => {
             if (!current()) return
@@ -4600,7 +4974,10 @@ window.__ModuleLoader__.load({
 
           }
         }
-        const resolveRoot = () => {
+        const resolveRoot = async () => {
+          if (opts?.force) await refreshMirrors()
+          else await ensureMirrors()
+          if (localWorkspaceSession(sessionId)) return fetchWorkspaceContext(sessionId).then(value => value.root || '')
           if (scopeCwd) {
             return api('GET', '/dsh-remote/resolve-mirror?local=' + encodeURIComponent(scopeCwd))
               .then((r) => (r && r.remotePath) || '')
@@ -4669,7 +5046,7 @@ window.__ModuleLoader__.load({
           return d
         }
         box.appendChild(mkItem(menu.isDir ? tr('explorer.menuExpand') : tr('explorer.menuOpen'), false, () => runMenuAction('open', menu)))
-        box.appendChild(mkItem(tr('explorer.menuDownload'), false, () => runMenuAction('download', menu)))
+        if (!localWorkspaceSession(sessionId)) box.appendChild(mkItem(tr('explorer.menuDownload'), false, () => runMenuAction('download', menu)))
         box.appendChild(mkItem(tr('explorer.menuCopyRel'), false, () => runMenuAction('copy-rel', menu)))
         box.appendChild(mkItem(tr('explorer.menuCopyAbs'), false, () => runMenuAction('copy-abs', menu)))
         box.appendChild(mkItem(tr('explorer.menuRename'), false, () => runMenuAction('rename', menu)))
@@ -4890,6 +5267,10 @@ window.__ModuleLoader__.load({
         const view = viewRef.current
         const timer = setInterval(() => {
           fetchRemoteStatus(sessionId).then((next) => { if (next && viewRef.current === view) setStatus(next) })
+          if (localWorkspaceSession(sessionId)) {
+            loadDir(root, { force: true, quiet: true })
+            for (const dir of expandedRef.current) if (dir !== root) loadDir(dir, { force: true, quiet: true })
+          }
         }, 5000)
         return () => clearInterval(timer)
       }, [root, sessionId, props.visible])
@@ -4961,7 +5342,7 @@ window.__ModuleLoader__.load({
           getAnchorRect: () => ({ left: menu.x, top: menu.y, right: menu.x, bottom: menu.y, width: 0, height: 0 }),
           items: [
             { id: 'open', label: menu.isDir ? tr('explorer.menuExpand') : tr('explorer.menuOpen') },
-            { id: 'download', label: tr('explorer.menuDownload') },
+            ...(!localWorkspaceSession(sessionId) ? [{ id: 'download', label: tr('explorer.menuDownload') }] : []),
             { id: 'copy-rel', label: tr('explorer.menuCopyRel') },
             { id: 'copy-abs', label: tr('explorer.menuCopyAbs') },
             { id: 'rename', label: tr('explorer.menuRename') },
@@ -5254,10 +5635,11 @@ window.__ModuleLoader__.load({
     const remoteDrafts = new Map()
     const pendingFileSaves = new Map()
     function RemoteFileTab(props) {
+      const tr = (key, params) => workspaceText(key, props.scope?.sessionId, params)
       const { tab, scope } = props
       const path = tab.path || ''
       const fileSessionId = scope && scope.sessionId
-      const [data, setData] = React.useState(() => fileViewMemory.get(String(fileSessionId || '') + '\0' + path)?.data || null)
+      const [data, setData] = React.useState(() => fileViewMemory.get(workspaceMemoryKey(fileSessionId) + '\0' + path)?.data || null)
       const [err, setErr] = React.useState('')
       const [loading, setLoading] = React.useState(true)
       const [localCopy, setLocalCopy] = React.useState(null)
@@ -5268,7 +5650,7 @@ window.__ModuleLoader__.load({
       const [edit, setEdit] = React.useState(false)
       const [draft, setDraft] = React.useState('')
       const [saving, setSaving] = React.useState(false)
-      const draftKey = String(fileSessionId || '') + '\0' + path
+      const draftKey = workspaceMemoryKey(fileSessionId) + '\0' + path
       const draftRecord = remoteDrafts.get(draftKey)
       const fileViewRef = React.useRef(draftKey)
       fileViewRef.current = draftKey
@@ -5607,7 +5989,7 @@ window.__ModuleLoader__.load({
       try {
         disposers.push(bs.registerTab({
           id: SIDEBAR_EXPLORER_ID,
-          title: () => tr('explorer.tabTitle'),
+          title: () => tr('workspace.files'),
           icon: (size) => React.createElement('span', { style: { fontSize: (size || 14), lineHeight: 1 } }, '🌐'),
           order: 55,
           single: true,
@@ -5779,6 +6161,28 @@ window.__ModuleLoader__.load({
       if (/^[A-Za-z]:/.test(relBody) || /^\//.test(relBody)) return toRemote(relBody)
       return remoteRoot + remoteSep + toRemote(relBody)
     }
+    function localPathForCoreAddress(parsed, cwd) {
+      if (!localWorkspaceSession(parsed.sessionId)) return null
+      const root = String(cwd || '').replace(/[\\/]+$/, '') || '/'
+      const win = /^(?:[a-z]:|\\\\)/i.test(root)
+      const value = String(parsed.path || '')
+      const absolute = /^(?:[a-z]:[\\/]|[\\/])/i.test(value) ? value : joinRemote(root, value)
+      const canonical = text => {
+        const parts = []
+        for (const part of (win ? text.replace(/\\/g, '/') : text).split('/')) {
+          if (part === '.') continue
+          if (part === '..') { if (parts.length > 1) parts.pop() }
+          else parts.push(part)
+        }
+        const result = parts.join('/').replace(/\/$/, '') || '/'
+        return win ? result.toLowerCase() : result
+      }
+      const base = canonical(root), target = canonical(absolute)
+      return target === base || target.startsWith(base === '/' ? '/' : base + '/') ? absolute : null
+    }
+    function workspacePathForCoreAddress(parsed, cwd) {
+      return remotePathForCoreAddress(parsed, cwd) || (remoteIdeState.enabled ? localPathForCoreAddress(parsed, cwd) : null)
+    }
     function NativeExplorer(props) {
       const info = props.useTabInfo()
       const [expanded, setExpanded] = React.useState(() => explorerMemory.get(props.sessionId)?.expanded || [])
@@ -5815,7 +6219,7 @@ window.__ModuleLoader__.load({
       // Resolve from the current navigation on every render. Keeping only an
       // initial path in state made same-tab navigation continue reading the old file.
       const [, invalidate] = React.useState(0)
-      const remotePath = parsed ? remotePathForCoreAddress(parsed, sessionCwdFor(sessionId)) : null
+      const remotePath = parsed ? workspacePathForCoreAddress(parsed, sessionCwdFor(sessionId)) : null
       React.useEffect(() => {
         const changed = () => invalidate((version) => version + 1)
         mirrorWatchers.add(changed)
@@ -5864,8 +6268,9 @@ window.__ModuleLoader__.load({
       } catch { return '' }
     }
     // The shipped workspace-files command opens kind "files". Route that
-    // intent before navigation, using the captured session's binding; retain
-    // the host's original page for local sessions and every other kind.
+    // intent before navigation, using the captured session's binding. Proven
+    // local projects now share this explorer; unknown roots and other kinds
+    // retain the host's original routing.
     function routeWorkspaceFiles(sidebar) {
       const originals = new Map(), pending = new Map()
       let disposed = false
@@ -5885,7 +6290,7 @@ window.__ModuleLoader__.load({
             if (sessionIndex == null && sidebar.mounted?.getSnapshot?.() !== sessionId) return
             const remote = mirrorForCwd(sessionCwdFor(sessionId), MIRRORS.list)
             const next = args.slice()
-            next[kindIndex] = remote ? NATIVE_EXPLORER : kind
+            next[kindIndex] = remote || localWorkspaceSession(sessionId) ? NATIVE_EXPLORER : kind
             return Reflect.apply(original, owner, next)
           }
           if (MIRRORS.loaded) return open()
@@ -5947,8 +6352,8 @@ window.__ModuleLoader__.load({
         if (previous) { try { previous() } catch { /* already released */ } }
         disposeExplorer = tabs.register({
           id: NATIVE_EXPLORER, kind: NATIVE_EXPLORER,
-          title: () => tr('explorer.tabTitle'),
-          ...(withGuide ? { guide: [{ order: 55, title: () => tr('explorer.tabTitle') }] } : {}),
+          title: () => tr('workspace.files'),
+          ...(withGuide ? { guide: [{ order: 55, title: () => tr('workspace.files') }] } : {}),
         })
         guideListed = withGuide
       }
@@ -5976,7 +6381,7 @@ window.__ModuleLoader__.load({
         }, 'dsh-remote.start-card-owner')
       })
       inner.effect(() => tabs.register({ id: NATIVE_WELCOME, kind: NATIVE_WELCOME, title: () => tr('ide.welcome') }), 'dsh-remote.native-welcome-type')
-      inner.effect(() => tabs.register({ id: NATIVE_CHANGES, kind: NATIVE_CHANGES, title: () => tr('changes.title') }), 'dsh-remote.native-changes-type')
+      inner.effect(() => tabs.register({ id: NATIVE_CHANGES, kind: NATIVE_CHANGES, title: () => tr('workspace.git') }), 'dsh-remote.native-changes-type')
       inner.effect(() => tabs.register({
         id: NATIVE_FILE, kind: NATIVE_FILE, keepMounted: true,
         patterns: ['dsh-resource://dsh-remote/**'],
@@ -5988,10 +6393,9 @@ window.__ModuleLoader__.load({
       // `dsh-resource://file/**` in the `fallback` band and reads locally.
       // better-sidebar also registers an extension-band editor, so the more
       // specific session/** pattern below must win the pattern-length tie-break.
-      // `canOpen` is the safety guard: it must return true ONLY for a
-      // session whose cwd is PROVEN to be a remote mirror. Local sessions, and
-      // a page load before the mirror registry has arrived, fall through to the
-      // built-in preview and behave exactly as they did before.
+      // `canOpen` guards execution-world selection. Proven remote links use
+      // SFTP; in IDE mode, project-scoped local links share this editor. Other
+      // local links and cold/unknown contexts retain the native host viewer.
       //
       // Registration is wrapped because the address-claiming half of this
       // contract (`patterns` + `canOpen`) is not something every DSH line
@@ -6018,12 +6422,12 @@ window.__ModuleLoader__.load({
               // file that was never synced dies with ENOENT and shows nothing at
               // all. This editor opens the file over SFTP and RENDERS it via the
               // host's MarkdownText (source only when the primitive is missing),
-              // so claiming is no longer a downgrade. Local sessions still fall
-              // through: their cwd is not a mirror, proven below.
+              // so claiming is no longer a downgrade. Local project links also
+              // share the editor when IDE mode is enabled, proven below.
               const cwd = sessionCwdFor(parsed.sessionId)
               // `MIRRORS.loaded` is checked so a cold start NEVER steals a local
-              // link: an empty registry cannot prove a mirror, and guessing would
-              // break the text preview for every local session.
+              // link: only a successfully loaded registry can distinguish a
+              // local project from a mirror.
               if (!cwd || !MIRRORS.loaded) return false
               // Ask the SAME resolver the body uses, not merely whether the cwd
               // is a mirror. A remote session can cite a LOCAL absolute path
@@ -6031,7 +6435,7 @@ window.__ModuleLoader__.load({
               // the old check claimed it here, then NativeRemoteLink rejected it
               // and showed file.linkUnresolved. Refusing it here hands the address
               // back to the built-in LOCAL editor, which is the correct owner.
-              return !!remotePathForCoreAddress(parsed, cwd)
+              return !!workspacePathForCoreAddress(parsed, cwd)
             },
             title: (address) => {
               const parsed = parseCoreFileAddress(address)
@@ -6079,6 +6483,7 @@ window.__ModuleLoader__.load({
     }
 
     function RemoteGitTab(props) {
+      const tr = (key, params) => workspaceText(key, props.sessionId, params)
       const key = String(props.sessionId || '')
       const initial = gitViewMemory.get(key)
       const [git, setGit] = React.useState({ key, data: null, error: '', busy: false, revision: 0 })
@@ -6411,7 +6816,7 @@ window.__ModuleLoader__.load({
     function RemoteIdeToggle(props) {
       const mirror = useSessionMirror(props.sessionId, props.useSessions)
       const state = useRemoteIdeState()
-      if (!mirror) return null
+      if (!mirror && !localWorkspaceSession(props.sessionId)) return null
       const supported = !!remoteIdeController?.mounted?.getSnapshot && typeof remoteIdeController.openResourceIn === 'function'
       return React.createElement('button', {
         type: 'button', 'data-rw-ide-toggle': '', 'aria-pressed': state.enabled,
@@ -6445,6 +6850,17 @@ window.__ModuleLoader__.load({
 [data-rw-ide-navigation]{display:flex;gap:3px}
 [data-rw-ide-navigation] button[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-hover,#eee);font-weight:600}
 @media(max-width:600px){[data-rw-ide-header]{gap:5px;padding:0 6px}[data-rw-ide-title]{display:none}[data-rw-ide-header] button{font-size:11px!important;padding:4px 6px!important}}
+/* macOS desktop (titleBarStyle hiddenInset) floats the native traffic lights at
+ * x 16..68 over the window's top strip, which this shell's header covers. That
+ * strip is 48px tall and its chrome sits on the y=25 centre line (28px controls
+ * at top:11), so the header takes the same height and one pixel of top padding
+ * (at 38px the title sat ~6px above the lights, and plain 48px centring left it
+ * ~1px high). Pad the leading edge by the 88px the host keeps for its fullscreen
+ * panels (lights end at 68, then 20px of air). Fullscreen hides the lights, so
+ * the ordinary 38px header and 12px inset return. The selector out-specifies the
+ * narrow-mode shorthand above, which stays in effect for its right inset. */
+html[data-platform='darwin'] [data-rw-ide-header]{height:48px;min-height:48px;padding-top:1px;padding-left:88px}
+html[data-platform='darwin'][data-fullscreen] [data-rw-ide-header]{height:38px;min-height:38px;padding-top:0;padding-left:12px}
 /* Reversible IDE-only header adapter for DSH 0.2.1/0.2.2.
  * Uses published slot/DOM markers rather than compiled class names.
  * Removing data-rw-ide-chat restores all native host styles automatically. */
@@ -6504,6 +6920,7 @@ window.__ModuleLoader__.load({
       }
     }
     function RemoteIdeWelcome() {
+      const tr = (key, params) => workspaceText(key, remoteIdeController?.mounted?.getSnapshot?.(), params)
       return React.createElement('article', { 'data-rw-ide-welcome': '', style: { boxSizing: 'border-box', width: '100%', minHeight: '100%', padding: 'clamp(24px,5vw,64px)', color: T.label, overflowWrap: 'anywhere' } },
         React.createElement('div', { style: { maxWidth: 560, margin: 'auto' } },
           React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 10, color: T.muted, fontSize: 12, marginBottom: 14 } }, React.createElement(WorkbenchIcon, { name: 'remote', size: 24 }), 'dsh / remote'),
@@ -6542,7 +6959,7 @@ window.__ModuleLoader__.load({
       const dragCleanup = React.useRef(null)
       const controller = remoteIdeController
       const sizes = remoteIdeWidths(width, state)
-      const mirror = sessionId ? mirrorForCwd(sessionCwdFor(sessionId), MIRRORS.list) : null
+      const mirror = sessionId ? workspaceSummary(sessionId) : null
       const active = !!(state.enabled && sessionId && mirror && controller)
       React.useEffect(() => {
         const update = () => {
@@ -6725,10 +7142,7 @@ window.__ModuleLoader__.load({
         )
       }
       ctx.inject(['betterSidebar'], (inner) => {
-        const svc = inner.get('betterSidebar')
-        BETTER_SIDEBAR = svc
         inner.effect(() => registerSidebarIntegration(inner), 'dsh-remote.betterSidebar')
-        inner.effect(() => () => { if (BETTER_SIDEBAR === svc) BETTER_SIDEBAR = null }, 'dsh-remote.better-sidebar')
       })
       ctx.inject(['sidebarRightTabs'], registerNativeSidebar)
       ctx.inject(['webTerminals'], (inner) => {

@@ -17,10 +17,11 @@
 // self-contained). Any richer import could itself be the file that is missing,
 // and then the guard dies together with the guarded.
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import { applyUpdate, isInstalledCopy, diskVersion } from './update.js'
+import { isInstalledCopy, diskVersion } from './update.js'
 
 /**
  * Whether `err` is the specific crash a half-applied update produces: Node
@@ -54,6 +55,13 @@ export function isMissingOwnModuleError(err) {
  *   when options.dir is set, the version is read from THAT directory's
  *   package.json rather than this package's own install dir.
  */
+async function applyFreshUpdate(version, options) {
+  // A previous updater may already be in the ESM cache. Load the newly laid
+  // update.js with a fresh URL so repair never reuses that stale updater.
+  const { applyUpdate } = await import('./update.js?self-heal=' + Date.now())
+  return applyUpdate(version, options)
+}
+
 export async function repairInstall(options = {}) {
   let version = diskVersion()
   if (options.dir) {
@@ -66,7 +74,7 @@ export async function repairInstall(options = {}) {
   if (!/^\d+\.\d+\.\d+/.test(version)) {
     throw new Error(`cannot self-repair: on-disk package.json version is unusable (${JSON.stringify(version)})`)
   }
-  return applyUpdate(version, options)
+  return applyFreshUpdate(version, options)
 }
 
 /** Actionable suffix attached to every failure we hand back to the user. */
@@ -93,7 +101,7 @@ const REINSTALL_HINT = 'please reinstall the plugin once (e.g. `dsh plugin --pro
  *   forwarded to applyUpdate; log defaults to console.warn.
  */
 export async function importWithSelfHeal(importer, options = {}) {
-  const { log = console.warn, ...repairOpts } = options || {}
+  const { log = console.warn, retryImporter, ...repairOpts } = options || {}
   let firstErr
   try {
     return { module: await importer(), repaired: false }
@@ -119,12 +127,57 @@ export async function importWithSelfHeal(importer, options = {}) {
   log(`[dsh-remote] startup repair applied ${repairOutcome.changed?.length ?? 0} file(s); retrying the load`)
 
   try {
-    return { module: await importer(), repaired: true }
+    // Node 22 can cache a failed ESM resolution. Retry with a fresh URL when
+    // the caller supplies one, rather than reusing the negative cache.
+    return { module: await (retryImporter || importer)(), repaired: true }
   } catch (secondErr) {
     const wrapped = new Error(
       `[dsh-remote] the install was re-laid from npm but loading still fails: ${(secondErr && secondErr.message) || secondErr}. ${REINSTALL_HINT}`,
     )
     wrapped.cause = secondErr
     throw wrapped
+  }
+}
+
+
+/**
+ * External repair entry point. It deliberately lives in this shallow module,
+ * not in index/main: a broken static dependency graph must not be needed to
+ * repair itself. `--dir` and `--tarball` are also useful for offline recovery
+ * and deterministic tests; normal users only need `node lib/self-heal.js`.
+ */
+const cliFile = (value) => {
+  try { return realpathSync(value) } catch { return path.resolve(value) }
+}
+const isMainModule = process.argv[1] && (() => {
+  const actual = cliFile(process.argv[1])
+  const self = cliFile(fileURLToPath(import.meta.url))
+  return process.platform === 'win32' ? actual.toLowerCase() === self.toLowerCase() : actual === self
+})()
+if (isMainModule) {
+  const args = process.argv.slice(2)
+  const valueFor = (flag) => {
+    const i = args.indexOf(flag)
+    return i >= 0 && i + 1 < args.length ? args[i + 1] : ''
+  }
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('Usage: node lib/self-heal.js [--version x.y.z] [--dir <package dir>] [--tarball <local tgz>]')
+  } else {
+    const dir = valueFor('--dir') || undefined
+    const tarballPath = valueFor('--tarball') || undefined
+    const version = valueFor('--version')
+    try {
+      if (version && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+        throw new Error(`invalid version: ${JSON.stringify(version)}`)
+      }
+      const result = version
+        ? await applyFreshUpdate(version, { dir, tarballPath })
+        : await repairInstall({ dir, tarballPath })
+      console.log(`[dsh-remote] repair completed: ${result.to}, ${result.changed?.length ?? 0} file(s) changed. Restart DSH to load the repaired package.`)
+    } catch (error) {
+      console.error(`[dsh-remote] repair failed: ${(error && error.message) || error}`)
+      console.error(REINSTALL_HINT)
+      process.exitCode = 1
+    }
   }
 }

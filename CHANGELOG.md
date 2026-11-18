@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — 2026-11-19
+
+- **dsh-remote 升到 1.2.1（本地同步）**：把安装副本中已升级的上游 1.2.1 收回仓库，替换原来的 1.1.2。
+  - 入口重组为 `lib/boot.js` → `lib/main.js`，新增 `lib/local-workspace.js`、
+    `lib/connect-summary.js` 等模块；bundle 行仍是 `./plugins/dsh-remote/lib/boot.js`，行 id
+    不变（`dsh-remote`）。
+  - 依赖未变（ssh2 / iconv-lite / yaml / @deepseek-ai/schemastery），无需新增 native 构建。
+  - modules.json / README / bundle 注释版本同步；Scher 版本 0.8.0。
+
 ## 0.7.1 — 2026-11-17
 
 - **修复 dsh-global-todo 的展开崩溃（本地修复，版本记 0.23.3）**：`TodoItem` 渲染「已绑定会话」

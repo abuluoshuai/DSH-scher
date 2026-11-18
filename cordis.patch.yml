@@ -76,7 +76,7 @@
     - id: ws-recency
       name: './plugins/dsh-ws-recency/index.js'
 
-    # ── 远程工作区（dsh-remote 1.1.2）──────────────────────────────────────
+    # ── 远程工作区（dsh-remote 1.2.1）──────────────────────────────────────
     - id: dsh-remote
       name: './plugins/dsh-remote/lib/boot.js'
 
