@@ -7,7 +7,7 @@
       "id": "color-style",
       "row": "color-style",
       "package": "dsh-color-style",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "directory": "plugins/dsh-color-style",
       "title": {
         "zh": "配色方案 + 完成时闪烁任务栏",
@@ -23,8 +23,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "任务栏闪烁仅 Windows、依赖系统 PowerShell；配色与闪烁可以分别关（闪烁在 config.taskbarFlash 下，enabled: false 即可关闭）。",
-        "en": "The taskbar flash is Windows-only and uses the system PowerShell; palettes and the flash switch independently (config.taskbarFlash.enabled)."
+        "zh": "任务栏闪烁仅 Windows、依赖系统 PowerShell；配色与闪烁可以分别关（闪烁在 config.taskbarFlash 下，enabled: false 即可关闭）。本地修复：异常会话打开后清除红色，历史错误重挂载不会重复标红。",
+        "en": "The taskbar flash is Windows-only and uses the system PowerShell; palettes and the flash switch independently (config.taskbarFlash.enabled). Local fix: opening an error session clears its red tint and a remounted historical error does not re-raise it."
       }
     },
     {
