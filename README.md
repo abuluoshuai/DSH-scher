@@ -45,7 +45,7 @@
 | `dsh-remote` | 1.2.1 | [flymysql/dsh-remote](https://github.com/flymysql/dsh-remote) | SSH 远程工作区、远程终端、远程文件浏览与搜索；**本地同步到上游 1.2.1**（入口重组为 boot → main，新增本地工作区 / 连接摘要模块），并保留注册进右侧栏、X11 转发、macOS 主机支持、远程文件树 VS Code 风格图标 |
 | `dsh-offwork-countdown` | 0.2.1 | [ZydFirst/dsh-offwork-countdown](https://github.com/ZydFirst/dsh-offwork-countdown) | 输入框下方的下班倒计时胶囊，到点转为加班计时；**本地定制**：到点在窗口上放一段可定制烟花（范围/密度/时长，设置里可预览） |
 | `dsh-system-monitor` | 0.1.0 | 自研（本仓库） | dock 里的 CPU／内存／显卡／显存进度条；指标在 DSH Host 进程采集，因此本地与远程工作区显示的都是会话真正所在的主机；支持 Windows/Linux/macOS 与 NVIDIA/AMD/Apple 显卡 |
-| `dsh-global-todo` | 0.23.3 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、交给会话继续做、多机同步 |
+| `dsh-global-todo` | 0.23.4 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、多机同步；**本地改动**：注册进 better-sidebar 的 tab，「交给」默认当前会话，添加待办不绑定工作区/会话 |
 | `@xmanrui/dsh-im` | 5.10.0 | [xmanrui/dsh-im](https://github.com/xmanrui/dsh-im) | IM 机器人：微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH |
 | `dsh-comfyui-workspace` | 0.7.0 | 自研（本仓库） | ComfyUI 简易工作台：导入工作流、卡片式调参、跑图/跑视频、归档每次参数与种子 |
 

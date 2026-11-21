@@ -167,7 +167,7 @@
       "id": "global-todo",
       "row": "global-todo",
       "package": "dsh-global-todo",
-      "version": "0.23.3",
+      "version": "0.23.4",
       "directory": "plugins/dsh-global-todo",
       "title": {
         "zh": "全局待办",
@@ -183,8 +183,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地修复：详情/跳转按钮的 ctx 未透传导致展开会话待办时崩溃。",
-        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local fix: the detail/jump button crashed when a session-bound todo was expanded because ctx was not passed down."
+        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。",
+        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session."
       }
     },
     {

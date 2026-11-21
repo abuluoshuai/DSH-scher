@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
       'action.detail': '详情',
       'action.hide': '收起',
       'action.dispatch': '交给 Agent',
-      'action.dispatchCurrent': '交给：当前对话',
+      'action.dispatchCurrent': '交给：当前会话',
       'action.dispatchAuto': '交给：自动（优先已绑定）',
       'action.dispatchNew': '交给：开新对话',
       'action.dispatchBound': '交给：只发给已绑定对话',
@@ -250,9 +250,9 @@ window.__ModuleLoader__.load({
       'dir.close': '关闭',
       'dir.loading': '读取中…',
       'dir.empty': '（这里没有子目录）',
-      'action.followSession': '跟随当前会话',
+      'action.followSession': '改为待定',
       'field.target': '发给',
-      'target.current': '当前对话',
+      'target.current': '当前会话（默认）',
       'target.label': '交给',
       'target.auto': '自动（已绑定 → 最近说过话 → 新开）',
       'target.newConversation': '＋ 开一个新对话（在工作区）',
@@ -261,11 +261,11 @@ window.__ModuleLoader__.load({
       'target.recent': '（最近说过话）',
       'target.pick': '选择要交给的对话',
       'target.none': '（没读到对话列表 —— 请刷新页面）',
-      'target.currentNamed': '当前对话「{title}」',
-      'target.currentUnknown': '当前对话（Host 取你最近说话的对话）',
+      'target.currentNamed': '当前会话「{title}」',
+      'target.currentUnknown': '当前会话（Host 取你最近说话的对话）',
       'field.dir': '工作目录',
-      'dir.none': '未确定',
-      'dir.fromSession': '（跟随当前会话）',
+      'dir.none': '待定（不绑定工作区）',
+      'dir.fromSession': '（派发时跟随当前会话）',
       'dir.picked': '（已指定）',
       'action.save': '保存',
       'action.cancel': '取消',
@@ -589,9 +589,9 @@ window.__ModuleLoader__.load({
       'dir.close': 'Close',
       'dir.loading': 'Reading…',
       'dir.empty': '(no sub-folders here)',
-      'action.followSession': 'Follow this conversation',
+      'action.followSession': 'Set to undecided',
       'field.target': 'To',
-      'target.current': 'this conversation',
+      'target.current': 'this conversation (default)',
       'target.label': 'Hand to',
       'target.auto': 'Automatic (bound → last written → new)',
       'target.newConversation': '+ a new conversation (inherit the workspace)',
@@ -603,8 +603,8 @@ window.__ModuleLoader__.load({
       'target.currentNamed': 'this conversation — {title}',
       'target.currentUnknown': 'this conversation (the one you last wrote in)',
       'field.dir': 'Working directory',
-      'dir.none': 'not set',
-      'dir.fromSession': '(from this conversation)',
+      'dir.none': 'to be decided (no workspace)',
+      'dir.fromSession': '(follows this conversation at hand-off)',
       'dir.picked': '(chosen)',
       'meta.origin': 'from {dir}',
       'meta.completed': 'Completed {when}',
@@ -1031,17 +1031,40 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The session the user is standing in, when the host exposes it.
+     * The conversation the reader is in front of, read from the shell's own DOM.
      *
-     * The panel lives in a root-scoped slot with no session of its own, and the
-     * client service surface has no "current session" accessor, so the panel
-     * does not pretend to know one. `current` stays a host-side dispatch mode
-     * for callers that do know; the panel uses `auto` / `new` / `bound`.
+     * The panel lives in a root-scoped slot with no session of its own and the
+     * client service surface has no "current session" accessor, so the browser
+     * tree is the honest source: the mounted transcript names its session, and
+     * when no transcript is mounted (the todo page is the main view) the selected
+     * session row still carries `aria-selected`. Both are public shell markup
+     * the rest of this panel already relies on (`[data-row-key^="session:"]`).
      *
      * @returns {string}
      */
-    function activeSessionId() {
+    function detectCurrentSessionId() {
+      // The selected row is the reader's own statement of where they are; it
+      // survives the todo page taking over the main view.
+      try {
+        const row = document.querySelector('[data-row-key^="session:"][aria-selected="true"]')
+        const key = row?.getAttribute('data-row-key') ?? ''
+        if (key.startsWith('session:')) return key.slice('session:'.length)
+      } catch {
+        /* fall through to the transcript */
+      }
+      try {
+        const host = document.querySelector('[data-conversation-session]')
+        const id = host?.getAttribute('data-conversation-session') ?? ''
+        if (id !== '') return id
+      } catch {
+        /* a missing DOM must never break a hand-off */
+      }
       return ''
+    }
+
+    /** @returns {string} the session the user is in front of, '' when unknown */
+    function activeSessionId() {
+      return detectCurrentSessionId()
     }
 
     // ------------------------------------------------------------------ 图标
@@ -2942,10 +2965,15 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
 
     // ------------------------------------------------------------------ 面板
 
-    /** @param {{ ctx: object, lang: 'zh' | 'en' }} props */
+    /** @param {{ ctx: object, lang: 'zh' | 'en', scope?: { sessionId?: string } }} props */
     function Panel(props) {
       const { ctx, lang } = props
       const t = useCallback((key, params) => translate(lang, key, params), [lang])
+      // When better-sidebar renders this panel, the tab carries the session its
+      // column belongs to. That is the most precise "current agent" answer —
+      // better than reading the main view, which the sidebar can differ from.
+      const sidebarSessionId = typeof props.scope?.sessionId === 'string' ? props.scope.sessionId : ''
+      const handoffSessionId = () => (sidebarSessionId !== '' ? sidebarSessionId : detectCurrentSessionId())
 
       const [state, setState] = useState({ todos: [], counts: null, health: null, matched: 0, truncated: false })
       const [loading, setLoading] = useState(true)
@@ -3066,7 +3094,10 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
       // "you, here", not "some session this plugin remembers".
       // '' means "let the Host decide"; anything else is a conversation the user
       // picked, sent as authoritative.
-      const [pickedTarget, setPickedTarget] = useState(() => readStoredTarget())
+      // Default (and after every reload) the hand-off follows the conversation
+      // in front of the reader. A manual choice lasts for this panel session only:
+      // a remembered "new conversation" must not silently beat "current".
+      const [pickedTarget, setPickedTarget] = useState('')
       const [more, setMore] = useState(false)
       const [collapsed, setCollapsed] = useState({})
       const [undo, setUndo] = useState(null)
@@ -3122,8 +3153,11 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
       // What the picker shows, and therefore what the click will do: an explicit
       // choice wins, otherwise the Host's grounded answer, otherwise what this
       // panel can see. No hidden inference beyond that.
-      const targetValue =
-        pickedTarget !== '' ? pickedTarget : hostTargetId !== '' ? hostTargetId : currentSessionId !== '' ? currentSessionId : 'auto'
+      // "Hand to" means "you, here" until the user picks otherwise: the panel
+      // follows the conversation in front of the reader, so a hand-off needs no
+      // workspace or target selection first. A conversation the user picked
+      // explicitly still wins and is sent as authoritative.
+      const targetValue = pickedTarget !== '' ? pickedTarget : 'current'
       const workspaceSnapshot = (() => {
         try {
           return ctx?.workspaces?.list?.getSnapshot?.() ?? null
@@ -3211,7 +3245,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
       // the list (archived since it was chosen, or not readable), show it anyway and
       // say so, rather than silently displaying a different conversation as selected.
       const pinnedEntry =
-        targetValue !== '' && targetValue !== 'auto' && targetValue !== 'new' && !targetValue.startsWith('new:') && !listedIds.has(targetValue)
+        targetValue !== '' && targetValue !== 'auto' && targetValue !== 'new' && targetValue !== 'current' && !targetValue.startsWith('new:') && !listedIds.has(targetValue)
           ? [{ id: targetValue, title: `${sessionTitles[targetValue] ?? targetValue} · ${t('target.archived')}` }]
           : []
       const conversations = [...pinnedEntry, ...labelled]
@@ -4098,9 +4132,13 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         }
         if (kind === 'dispatch') {
           const inWorkspace = targetValue.startsWith('new:') ? targetValue.slice(4) : ''
-          const pinned = targetValue === 'auto' || targetValue.startsWith('new') ? '' : targetValue
+          const followsCurrent = targetValue === 'current'
+          const pinned = targetValue === 'auto' || followsCurrent || targetValue.startsWith('new') ? '' : targetValue
           const mode = targetValue.startsWith('new') ? 'new' : targetValue === 'auto' ? 'auto' : 'current'
-          const sessionId = pinned
+          // "Current" is resolved when the click happens, not when the panel
+          // rendered: the reader may have switched conversations since.
+          const liveSessionId = followsCurrent ? handoffSessionId() : ''
+          const sessionId = pinned !== '' ? pinned : liveSessionId
           return run(todo.id, async () => {
             const result = await call('dispatch', {
               method: 'POST',
@@ -4337,7 +4375,25 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
           ? t('action.dispatchNew')
           : targetValue === 'auto'
             ? t('action.dispatchAuto')
-            : t('action.dispatch')
+            : targetValue === 'current'
+              ? t('action.dispatchCurrent')
+              : t('action.dispatch')
+      // What the context chip calls the current choice. The live conversation
+      // is read again here so the chip names the one the next click would use.
+      const targetChipLabel = (() => {
+        if (targetValue === 'current') {
+          const liveId = handoffSessionId()
+          const title = liveId === '' ? '' : (sessionTitles[liveId] ?? '')
+          return title === '' ? t('target.currentUnknown') : t('target.currentNamed', { title })
+        }
+        if (targetValue === 'auto') return t('target.auto')
+        if (targetValue === 'new') return t('target.newConversation')
+        if (targetValue.startsWith('new:')) {
+          const workspace = workspaceRows.find((row) => `new:${row.workspaceId}` === targetValue)
+          return t('target.newInWorkspace', { title: workspace?.title ?? '' })
+        }
+        return conversations.find((entry) => entry.id === targetValue)?.title ?? t('target.archived')
+      })()
 
       const filterChip = (key, count) =>
         h(
@@ -4370,7 +4426,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
               h(Icon, { name: 'doc', size: 12 }),
               h('span', { className: 'gt-muted' }, `${t('field.dir')}: `),
               h('span', { className: 'gt-dir-path' }, effectiveDir === '' ? t('dir.none') : effectiveDir),
-              h('span', { className: 'gt-muted' }, pickedDir === '' ? t('dir.fromSession') : t('dir.picked')),
+              h('span', { className: 'gt-muted' }, pickedDir === '' ? t('dir.none') : t('dir.picked')),
               h('button', { type: 'button', className: 'gt-btn gt-btn-quiet', onClick: () => void chooseDir() }, t('action.pickDir')),
               h(
                 'button',
@@ -4483,10 +4539,12 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
                 'aria-label': t('target.pick'),
                 onChange: (event) => {
                   setPickedTarget(event.target.value)
-                  storeStoredTarget(event.target.value)
                 },
               },
               [
+                // The default: hand this to the conversation the reader is in
+                // front of. No workspace, no picker.
+                { value: 'current', label: t('target.current') },
                 // A conversation the user picks is sent as authoritative: no
                 // inference on top of an explicit choice.
                 ...(conversations.length === 0
@@ -5278,15 +5336,15 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
               { className: 'gt-context-summary' },
               h(
                 'button',
-                { type: 'button', className: 'gt-chip gt-chip-dir', title: effectiveDir === '' ? t('dir.none') : effectiveDir, onClick: () => setContextOpen((value) => !value) },
+                { type: 'button', className: 'gt-chip gt-chip-dir', title: pickedDir !== '' && effectiveDir !== '' ? effectiveDir : t('dir.none'), onClick: () => setContextOpen((value) => !value) },
                 h(Icon, { name: 'doc', size: 12 }),
-                effectiveDir === '' ? t('dir.none') : effectiveDir,
+                pickedDir !== '' && effectiveDir !== '' ? effectiveDir : t('dir.none'),
               ),
               h(
                 'button',
                 { type: 'button', className: 'gt-chip', title: t('target.pick'), onClick: () => setContextOpen((value) => !value) },
                 h(Icon, { name: 'play', size: 11 }),
-                `${t('target.label')}: ${conversations.find((entry) => entry.id === targetValue)?.title ?? t('target.auto')}`,
+                `${t('target.label')}: ${targetChipLabel}`,
               ),
               h(
                 'button',
@@ -5985,6 +6043,32 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         ctx.slots.inject('main', () =>
           ctx.slots.register({ name: 'main', key: SLOT_ID, locale: LOCALE_NS }, withLocale(ctx, Panel)),
         )
+
+        // better-sidebar (when installed) publishes a tab registry: the same
+        // panel becomes a tab of that column, and the tab's own session is the
+        // "current agent" a hand-off goes to. `inject` waits for the service,
+        // so load order between the two plugins does not matter, and a
+        // standalone install simply never runs this block.
+        ctx.inject(['betterSidebar'], (sidebarCtx) => {
+          const sidebar = sidebarCtx.betterSidebar
+          if (sidebar === null || sidebar === undefined || typeof sidebar.registerTab !== 'function') return
+          sidebarCtx.effect(
+            () =>
+              sidebar.registerTab({
+                id: SLOT_ID,
+                title: () => (resolveLang(ctx) === 'zh' ? zh['entry.label'] : en['entry.label']),
+                description: () =>
+                  resolveLang(ctx) === 'zh'
+                    ? '跨会话待办清单：先把需求记下来，再交给当前对话的 agent'
+                    : 'Cross-session todo list: write it down first, hand it to the current conversation later',
+                icon: (size) => h(Glyph, { size }),
+                order: 86,
+                single: true,
+                component: withLocale(ctx, Panel),
+              }),
+            `${LOCALE_NS}: better-sidebar tab`,
+          )
+        })
       },
     }
   },
