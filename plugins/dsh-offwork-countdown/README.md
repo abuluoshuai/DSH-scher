@@ -26,7 +26,7 @@ dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown
 
 设置默认是 `09:00 – 18:00`。点输入框下方那枚胶囊，弹出设置框：
 
-- 上班时间 / 下班时间：`<input type="time">`，改完点「保存」；「恢复默认」回到 `09:00 – 18:00`。
+- 上班时间 / 下班时间：点时间按钮打开两列列表（小时 `00–23`、分钟 `00–59`，滚到两端即止、**不循环**）；点小时保持展开，**点分钟立即更新并收起**；改完点「保存」；「恢复默认」回到 `09:00 – 18:00`。
 - Esc、点遮罩、「取消」都可以关掉设置框。
 
 设置保存在 **Host 侧**的 `$DSH_HOME/offwork-countdown/settings.json`（`DSH_HOME` 默认 `~/.dsh`）——插件升级、DSH 重启换端口都不会重置。浏览器 `localStorage`（键名 `dsh.offwork-countdown.settings.v1`）只作为 Host 路由不可用时的兜底副本；不上传、不写会话日志。

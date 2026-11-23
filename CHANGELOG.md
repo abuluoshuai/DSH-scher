@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.5 — 2026-11-23
+
+- **dsh-offwork-countdown 升到 0.2.4（本地修复）**：上下班时间改用自绘选择器。
+  - 原生 `<input type="time">` 的滚轮选择器会循环滚动，且选完分钟不收起；现在换成两列
+    有限列表（小时 00–23、分钟 00–59，滚到两端即停、不循环）。点小时保持展开，
+    **点分钟立即更新并收起**；点外部 / Esc 也会收起；上班、下班两个字段都改。
+  - 修复上一版误把 `React.useEffect` 改成 `React.React.useEffect` 导致倒计时胶囊从 dock
+    消失的问题。
+  - README / modules.json / CHANGELOG 同步；Scher 版本 0.8.5。
+
 ## 0.8.4 — 2026-11-23
 
 - **dsh-offwork-countdown 升到 0.2.3（本地功能）**：下班烟花增加可选择的样式。

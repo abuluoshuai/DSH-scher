@@ -114,7 +114,7 @@
       "id": "countdown",
       "row": "dsh-offwork-countdown",
       "package": "dsh-offwork-countdown",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "directory": "plugins/dsh-offwork-countdown",
       "title": {
         "zh": "下班倒计时",
@@ -130,8 +130,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖，可单独安装。设置保存在 $DSH_HOME/offwork-countdown/settings.json（升级/重启不重置）；到点由 Host 侧定时闪任务栏，页面在后台被节流也不会漏。",
-        "en": "No dependencies; safe to install alone. Settings live in $DSH_HOME/offwork-countdown/settings.json (survive updates/restarts); the Host schedules the taskbar flash, so background tab throttling cannot skip it."
+        "zh": "无依赖，可单独安装。设置保存在 $DSH_HOME/offwork-countdown/settings.json（升级/重启不重置）；到点由 Host 侧定时闪任务栏，页面在后台被节流也不会漏；上下班时间用自绘两列选择器（不循环、点分钟即收起）。",
+        "en": "No dependencies; safe to install alone. Settings live in $DSH_HOME/offwork-countdown/settings.json (survive updates/restarts); the Host schedules the taskbar flash, so background tab throttling cannot skip it; time fields use a custom two-column picker (no wrap, closes on minute pick)."
       }
     },
     {

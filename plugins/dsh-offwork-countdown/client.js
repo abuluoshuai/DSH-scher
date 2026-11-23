@@ -43,6 +43,8 @@ window.__ModuleLoader__.load({
         start: '上班',
         end: '下班',
         save: '保存',
+        hours: '小时',
+        minutes: '分钟',
         cancel: '取消',
         reset: '恢复默认',
         preview: '预览烟花',
@@ -84,6 +86,8 @@ window.__ModuleLoader__.load({
         start: 'Start',
         end: 'End',
         save: 'Save',
+        hours: 'Hours',
+        minutes: 'Minutes',
         cancel: 'Cancel',
         reset: 'Reset',
         preview: 'Preview fireworks',
@@ -155,6 +159,15 @@ window.__ModuleLoader__.load({
       '.owc-fw-group-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}',
       '.owc-check{width:16px;height:16px;margin:0;accent-color:var(--dsw-alias-brand-primary);cursor:pointer}',
       '.owc-select{padding:3px 6px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}',
+      '.owc-timepick{position:relative;display:inline-flex;align-items:center}',
+      '.owc-timepick-btn{width:104px;box-sizing:border-box;padding:3px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-variant-numeric:tabular-nums;text-align:left;cursor:pointer}',
+      '.owc-timepick-btn:hover{border-color:var(--dsw-alias-border-l2)}',
+      '.owc-timepick-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:1300;display:flex;gap:4px;padding:6px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-overlay);box-shadow:0 18px 44px rgba(0,0,0,.36)}',
+      '.owc-timepick-col{display:flex;flex-direction:column;gap:2px;width:46px;max-height:198px;overflow-y:auto;overscroll-behavior:contain;padding:2px}',
+      '.owc-timepick-opt{flex:none;padding:4px 0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-variant-numeric:tabular-nums;cursor:pointer;text-align:center}',
+      '.owc-timepick-opt:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.owc-timepick-opt[data-on="1"]{background:var(--dsw-alias-brand-primary);color:#fff}',
+      '.owc-timepick-opt:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
       '.owc-fw{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:900;opacity:0;transition:opacity .45s ease;filter:saturate(1.15) brightness(0.95)}',
       '.owc-fw[data-on="1"]{opacity:1}',
       '@media (prefers-reduced-motion: reduce){.owc-fw{transition:none}}',
@@ -478,6 +491,103 @@ window.__ModuleLoader__.load({
     // 设置对话框：挂在 shell.overlay，浮在所有列之上，不会被输入框盖住。
     // ---------------------------------------------------------------------
 
+    /**
+     * 自绘时间选择器：原生 <input type="time"> 的滚轮选择器会循环滚动，而且选完分钟
+     * 不收起。这里用两列有限列表（00–23 / 00–59，不循环）代替：点小时保持展开，点分钟
+     * 立即更新并收起；点外部或 Esc 也收起。
+     */
+    function TimeField(props) {
+      const fallback = /^\d{2}:\d{2}$/.test(String(props.value || '')) ? props.value : '09:00'
+      const value = fallback
+      const [open, setOpen] = React.useState(false)
+      const rootRef = React.useRef(null)
+      const hourRef = React.useRef(null)
+      const minuteRef = React.useRef(null)
+      const t = typeof props.t === 'function' ? props.t : function (key) { return key }
+      const hours = Number(value.slice(0, 2))
+      const minutes = Number(value.slice(3, 5))
+
+      React.useEffect(function () {
+        if (!open) return undefined
+        const onDown = function (event) {
+          if (rootRef.current !== null && !rootRef.current.contains(event.target)) setOpen(false)
+        }
+        const onKey = function (event) {
+          if (event.key === 'Escape') setOpen(false)
+        }
+        document.addEventListener('mousedown', onDown, true)
+        document.addEventListener('keydown', onKey, true)
+        return function () {
+          document.removeEventListener('mousedown', onDown, true)
+          document.removeEventListener('keydown', onKey, true)
+        }
+      }, [open])
+
+      React.useEffect(function () {
+        if (!open) return
+        if (hourRef.current !== null) hourRef.current.scrollIntoView({ block: 'center' })
+        if (minuteRef.current !== null) minuteRef.current.scrollIntoView({ block: 'center' })
+      }, [open])
+
+      const commit = function (nextHour, nextMinute, close) {
+        props.onChange(pad2(nextHour) + ':' + pad2(nextMinute))
+        if (close) setOpen(false)
+      }
+
+      const option = function (kind, number, selected, onClick) {
+        return h(
+          'button',
+          {
+            key: kind + ':' + number,
+            type: 'button',
+            className: 'owc-timepick-opt',
+            'data-on': selected ? '1' : '0',
+            role: 'option',
+            'aria-selected': selected,
+            ref: selected ? (kind === 'hour' ? hourRef : minuteRef) : undefined,
+            onClick: onClick,
+          },
+          pad2(number),
+        )
+      }
+
+      const hourOptions = []
+      for (let hour = 0; hour < 24; hour += 1) {
+        const target = hour
+        hourOptions.push(option('hour', hour, hour === hours, function () { commit(target, minutes, false) }))
+      }
+      const minuteOptions = []
+      for (let minute = 0; minute < 60; minute += 1) {
+        const target = minute
+        minuteOptions.push(option('minute', minute, minute === minutes, function () { commit(hours, target, true) }))
+      }
+
+      return h(
+        'span',
+        { className: 'owc-timepick', ref: rootRef },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'owc-timepick-btn',
+            'aria-haspopup': 'listbox',
+            'aria-expanded': open,
+            title: t('title'),
+            onClick: function () { setOpen(function (value) { return !value }) },
+          },
+          value,
+        ),
+        open
+          ? h(
+              'div',
+              { className: 'owc-timepick-pop' },
+              h('div', { className: 'owc-timepick-col', role: 'listbox', 'aria-label': t('hours') }, hourOptions),
+              h('div', { className: 'owc-timepick-col', role: 'listbox', 'aria-label': t('minutes') }, minuteOptions),
+            )
+          : null,
+      )
+    }
+
     function SettingsDialog(props) {
       const t = props.t
       const current = useStore()
@@ -550,17 +660,13 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'owc-fields' },
             h(
-              'label',
+              'div',
               { className: 'owc-field' },
               h('span', { className: 'owc-field-label' }, t('start')),
-              h('input', {
-                type: 'time',
-                className: 'owc-input',
-                step: 60,
+              h(TimeField, {
+                t: t,
                 value: draft.start,
-                autoFocus: true,
-                onChange: function (event) {
-                  const value = event.target.value
+                onChange: function (value) {
                   setDraft(function (previous) {
                     return Object.assign({}, previous, { start: value })
                   })
@@ -568,16 +674,13 @@ window.__ModuleLoader__.load({
               }),
             ),
             h(
-              'label',
+              'div',
               { className: 'owc-field' },
               h('span', { className: 'owc-field-label' }, t('end')),
-              h('input', {
-                type: 'time',
-                className: 'owc-input',
-                step: 60,
+              h(TimeField, {
+                t: t,
                 value: draft.end,
-                onChange: function (event) {
-                  const value = event.target.value
+                onChange: function (value) {
                   setDraft(function (previous) {
                     return Object.assign({}, previous, { end: value })
                   })
