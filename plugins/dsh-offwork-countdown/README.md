@@ -8,7 +8,7 @@ DeepSeek Harness（dsh）Web 界面插件：在输入框下方常驻一枚倒计
 
 - **工作日倒计时**：默认 `09:00 → 18:00`，胶囊显示 `距离下班 08:24:00`，右侧一条细进度条表示今天从上班走到现在走了多远。
 - **到点切换**：下班时间一到，文案先跳成「下班啦」，随后变成加班计时（`已下班 00:03:12`），小圆点轻轻呼吸一下。
-- **下班烟花**：下班时间一到，**先闪任务栏**；如果你不在 DSH 前面，烟花会挂起，等你点击 DSH / 把它切回前台再放（默认整窗、10 秒、密度「多」）。范围 / 密度 / 时长都能在设置里调，并带一个「预览烟花」按钮随时试放。
+- **下班烟花**：下班时间一到，**先闪任务栏**；如果你不在 DSH 前面，烟花会挂起，等你点击 DSH / 把它切回前台再放（默认整窗、10 秒、密度「多」）。范围 / 密度 / 时长 / **样式**都能在设置里调，并带一个「预览烟花」按钮随时试放。
 - **周末**：周六周日只显示「周末快乐」，不倒数。
 - **改时间**：点胶囊弹出居中设置框，改上班 / 下班时间即时生效。
 - **跟随主题**：只使用 dsh 主题 token（`--dsw-alias-*`），亮色暗色自动适配；文案走 Client locale 服务，中英双语。
@@ -46,9 +46,12 @@ Chromium 节流也不会漏。系统开启「减少动态效果」时只闪任�
 - **范围**：整窗 / 对话区；
 - **密度**：少 / 标准 / 多 / 爆量（粒子总量有上限，避免高密度掉帧）；
 - **持续时间**：3 / 6 / 10 / 15 秒；
+- **样式**：经典爆裂 / 心形 / 五角星 / 圆环 / 双环 / 柳枝 / 螺旋 / 笑脸 / 随机混合（每一发随机挑一个）；「预览烟花」直接用当前选中的样式；
 - **预览烟花**：随时试放一次，不占用当天的自动播放次数。
 
 实现：`client.js` 内手绘 canvas（`requestAnimationFrame` + 重力/摩擦/拖尾），无第三方依赖、无声音；
+带形状的烟花用参数化轮廓（心形曲线、五角星多边形、圆/双环、螺旋臂、笑脸圆弧）生成粒子目标点，
+爆开后先「定格」成形状再自然散开；柳枝用高重力长寿命做下垂长尾。
 颜色是固定的霓虹色盘，不跟随宿主主题 token。任务栏闪烁由 Host 侧调用 PowerShell + Win32 `FlashWindowEx` 完成
 （仅 Windows，失败静默），所以页面在后台时也能提示你。
 
@@ -89,7 +92,7 @@ MIT © ZydFirst
 
 ## English
 
-An off-work countdown for the DeepSeek Harness Web UI. A pill under the message composer counts down to the end of the workday (default 09:00–18:00), with a thin progress bar for the day so far. When the end time arrives it switches to an overtime timer, asks the desktop window to flash its taskbar button, and plays a fireworks animation across the DSH window — but only once the window is in the foreground: while DSH is in the background the animation waits for you instead of playing unseen. Scope, density and duration are configurable in the pill's settings dialog, which also has a preview button. Weekends just say "Weekend". Settings are stored in `$DSH_HOME/offwork-countdown/settings.json` on the Host side (so plugin updates and Host restarts do not reset them); the browser's `localStorage` is only a fallback copy. Nothing leaves the machine.
+An off-work countdown for the DeepSeek Harness Web UI. A pill under the message composer counts down to the end of the workday (default 09:00–18:00), with a thin progress bar for the day so far. When the end time arrives it switches to an overtime timer, asks the desktop window to flash its taskbar button, and plays a fireworks animation across the DSH window — but only once the window is in the foreground: while DSH is in the background the animation waits for you instead of playing unseen. Scope, density, duration and the firework **style** (classic burst / heart / star / ring / double ring / willow / spiral / smiley / mixed) are configurable in the pill's settings dialog, which also has a preview button that uses the style currently selected. Weekends just say "Weekend". Settings are stored in `$DSH_HOME/offwork-countdown/settings.json` on the Host side (so plugin updates and Host restarts do not reset them); the browser's `localStorage` is only a fallback copy. Nothing leaves the machine.
 
 ```sh
 dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown

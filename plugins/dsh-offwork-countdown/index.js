@@ -48,12 +48,13 @@ const MAX_TIMER_MS = 2_147_483_647
 export const DEFAULT_SETTINGS = Object.freeze({
   start: '09:00',
   end: '18:00',
-  fireworks: Object.freeze({ enabled: true, scope: 'window', density: 'high', duration: 'long' }),
+  fireworks: Object.freeze({ enabled: true, scope: 'window', density: 'high', duration: 'long', shape: 'classic' }),
 })
 
 const FIREWORK_SCOPES = Object.freeze(['conversation', 'window'])
 const FIREWORK_DENSITIES = Object.freeze(['low', 'normal', 'high', 'ultra'])
 const FIREWORK_DURATIONS = Object.freeze(['short', 'normal', 'long', 'longer'])
+const FIREWORK_SHAPES = Object.freeze(['classic', 'heart', 'star', 'ring', 'double-ring', 'willow', 'spiral', 'smiley', 'mixed'])
 
 /** @param {Record<string, string | undefined>} [env] @returns {string} */
 export function resolveHomeDir(env = process.env) {
@@ -101,6 +102,7 @@ export function normalizeFireworks(raw) {
     scope: FIREWORK_SCOPES.includes(source.scope) ? source.scope : DEFAULT_SETTINGS.fireworks.scope,
     density: FIREWORK_DENSITIES.includes(source.density) ? source.density : DEFAULT_SETTINGS.fireworks.density,
     duration: FIREWORK_DURATIONS.includes(source.duration) ? source.duration : DEFAULT_SETTINGS.fireworks.duration,
+    shape: FIREWORK_SHAPES.includes(source.shape) ? source.shape : DEFAULT_SETTINGS.fireworks.shape,
   }
 }
 

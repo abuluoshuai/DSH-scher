@@ -25,10 +25,11 @@ window.__ModuleLoader__.load({
     const HOST_API = 'api/offwork-countdown'
     const FIREWORK_SCOPES = ['conversation', 'window']
     const FIREWORK_DENSITIES = ['low', 'normal', 'high', 'ultra']
+    const FIREWORK_SHAPES = ['classic', 'heart', 'star', 'ring', 'double-ring', 'willow', 'spiral', 'smiley', 'mixed']
     const DEFAULT_SETTINGS = {
       start: '09:00',
       end: '18:00',
-      fireworks: { enabled: true, scope: 'window', density: 'high', duration: 'long' },
+      fireworks: { enabled: true, scope: 'window', density: 'high', duration: 'long', shape: 'classic' },
     }
 
     const DICT = {
@@ -47,6 +48,16 @@ window.__ModuleLoader__.load({
         preview: '预览烟花',
         fwTitle: '下班烟花',
         fwEnabled: '到点放烟花',
+        fwShape: '样式',
+        fwShapeClassic: '经典爆裂',
+        fwShapeHeart: '心形',
+        fwShapeStar: '五角星',
+        fwShapeRing: '圆环',
+        fwShapeDoubleRing: '双环',
+        fwShapeWillow: '柳枝',
+        fwShapeSpiral: '螺旋',
+        fwShapeSmiley: '笑脸',
+        fwShapeMixed: '随机混合',
         fwScope: '范围',
         fwScopeWindow: '整窗',
         fwScopeConversation: '对话区',
@@ -78,6 +89,16 @@ window.__ModuleLoader__.load({
         preview: 'Preview fireworks',
         fwTitle: 'Off-work fireworks',
         fwEnabled: 'Fireworks at off-work time',
+        fwShape: 'Style',
+        fwShapeClassic: 'Classic burst',
+        fwShapeHeart: 'Heart',
+        fwShapeStar: 'Star',
+        fwShapeRing: 'Ring',
+        fwShapeDoubleRing: 'Double ring',
+        fwShapeWillow: 'Willow',
+        fwShapeSpiral: 'Spiral',
+        fwShapeSmiley: 'Smiley',
+        fwShapeMixed: 'Mixed (random per burst)',
         fwScope: 'Scope',
         fwScopeWindow: 'Whole window',
         fwScopeConversation: 'Conversation',
@@ -185,6 +206,7 @@ window.__ModuleLoader__.load({
         scope: FIREWORK_SCOPES.indexOf(source.scope) >= 0 ? source.scope : 'window',
         density: FIREWORK_DENSITIES.indexOf(source.density) >= 0 ? source.density : 'high',
         duration: FIREWORK_DURATION_KEYS.indexOf(source.duration) >= 0 ? source.duration : 'long',
+        shape: FIREWORK_SHAPES.indexOf(source.shape) >= 0 ? source.shape : 'classic',
       }
     }
 
@@ -610,6 +632,32 @@ window.__ModuleLoader__.load({
             h(
               'label',
               { className: 'owc-field' },
+              h('span', { className: 'owc-field-label' }, t('fwShape')),
+              h(
+                'select',
+                {
+                  className: 'owc-select',
+                  value: fireworksDraft.shape || 'classic',
+                  onChange: function (event) {
+                    const shape = event.target.value
+                    setDraft(function (previous) {
+                      return Object.assign({}, previous, {
+                        fireworks: Object.assign({}, previous.fireworks, { shape: shape }),
+                      })
+                    })
+                  },
+                },
+                FIREWORK_SHAPES.map(function (shape) {
+                  const label = shape.replace(/(^|-)([a-z])/g, function (match, dash, letter) {
+                    return letter.toUpperCase()
+                  })
+                  return h('option', { key: shape, value: shape }, t('fwShape' + label))
+                }),
+              ),
+            ),
+            h(
+              'label',
+              { className: 'owc-field' },
               h('span', { className: 'owc-field-label' }, t('fwDensity')),
               h(
                 'select',
@@ -680,7 +728,7 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   className: 'owc-btn owc-btn-primary',
                   onClick: function () {
-                    if (typeof props.onPreview === 'function') props.onPreview()
+                    if (typeof props.onPreview === 'function') props.onPreview(draft.fireworks)
                     setEditorOpen(false)
                   },
                 },
@@ -738,6 +786,18 @@ window.__ModuleLoader__.load({
       '#ff375f',
     ]
     const FIREWORK_GRAVITY = 70
+    /** 每个形状自己的颜色盘（比经典款更集中，形状才读得出来）。 */
+    const FIREWORK_SHAPE_COLORS = {
+      classic: FIREWORK_COLORS,
+      heart: ['#ff4d6d', '#ff758f', '#ff8fa3', '#ffb3c1', '#ffd6dd'],
+      star: ['#ffd60a', '#ffe066', '#ffb703', '#fff3b0'],
+      ring: ['#64d2ff', '#0a84ff', '#5ac8fa', '#bfe8ff'],
+      'double-ring': ['#bf5af2', '#0a84ff', '#64d2ff', '#ff2d6f'],
+      willow: ['#ffd60a', '#ffb703', '#ffe08a', '#ff9f0a'],
+      spiral: ['#bf5af2', '#64d2ff', '#ff2d6f', '#ffd60a'],
+      smiley: ['#ffd60a', '#ffe066', '#ffb703', '#ffffff'],
+    }
+    const FIREWORK_SHAPE_POOL = ['classic', 'heart', 'star', 'ring', 'double-ring', 'willow', 'spiral', 'smiley']
     /** 密度档位 → 粒子与发数倍率。 */
     const FIREWORK_DENSITY_FACTORS = { low: 0.7, normal: 1.2, high: 1.8, ultra: 2.6 }
     /** 持续时间档位（毫秒）。 */
@@ -781,6 +841,7 @@ window.__ModuleLoader__.load({
       const scope = opts.scope === 'conversation' ? 'conversation' : 'window'
       const density = FIREWORK_DENSITIES.indexOf(opts.density) >= 0 ? opts.density : 'high'
       const densityFactor = FIREWORK_DENSITY_FACTORS[density]
+      const shapeChoice = FIREWORK_SHAPES.indexOf(opts.shape) >= 0 ? opts.shape : 'classic'
       const canvas = document.createElement('canvas')
       canvas.className = 'owc-fw'
       canvas.setAttribute('aria-hidden', 'true')
@@ -866,6 +927,15 @@ window.__ModuleLoader__.load({
       }
 
       function explode(rocket) {
+        const shape = pickBurstShape()
+        if (shape === 'willow') {
+          explodeWillow(rocket)
+          return
+        }
+        if (shape !== 'classic') {
+          explodeShaped(rocket, shape)
+          return
+        }
         const budget = Math.max(0, maxSparks - sparks.length)
         const amount = Math.min(budget, Math.round((70 + Math.random() * 70) * densityFactor))
         if (amount <= 0) return
@@ -900,8 +970,178 @@ window.__ModuleLoader__.load({
         })
       }
 
+      /** Pick one shape for this burst ('mixed' = per-burst random). */
+      function pickBurstShape() {
+        if (shapeChoice !== 'mixed') return shapeChoice
+        return FIREWORK_SHAPE_POOL[Math.floor(Math.random() * FIREWORK_SHAPE_POOL.length)]
+      }
+
+      /** Unit-space outline points for the shaped bursts. */
+      function burstPoints(shape) {
+        const points = []
+        if (shape === 'heart') {
+          const steps = 84
+          for (let index = 0; index < steps; index += 1) {
+            const t = (index / steps) * Math.PI * 2
+            const x = 16 * Math.pow(Math.sin(t), 3)
+            const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)
+            points.push({ x: x / 17, y: -y / 17 })
+          }
+          const inner = 26
+          for (let index = 0; index < inner; index += 1) {
+            const t = (index / inner) * Math.PI * 2
+            const x = 16 * Math.pow(Math.sin(t), 3) * 0.55
+            const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)
+            points.push({ x: x / 17, y: (-y / 17) * 0.55 })
+          }
+          return points
+        }
+        if (shape === 'star') {
+          const vertices = []
+          for (let index = 0; index < 10; index += 1) {
+            const radius = index % 2 === 0 ? 1 : 0.42
+            const angle = -Math.PI / 2 + (index * Math.PI) / 5
+            vertices.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius })
+          }
+          const perEdge = 6
+          for (let index = 0; index < 10; index += 1) {
+            const from = vertices[index]
+            const to = vertices[(index + 1) % 10]
+            for (let step = 0; step < perEdge; step += 1) {
+              const k = step / perEdge
+              points.push({ x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k })
+            }
+          }
+          return points
+        }
+        if (shape === 'ring') {
+          const steps = 82
+          for (let index = 0; index < steps; index += 1) {
+            const angle = (index / steps) * Math.PI * 2
+            points.push({ x: Math.cos(angle), y: Math.sin(angle) })
+          }
+          return points
+        }
+        if (shape === 'double-ring') {
+          const outer = 66
+          for (let index = 0; index < outer; index += 1) {
+            const angle = (index / outer) * Math.PI * 2
+            points.push({ x: Math.cos(angle), y: Math.sin(angle) })
+          }
+          const inner = 42
+          for (let index = 0; index < inner; index += 1) {
+            const angle = (index / inner) * Math.PI * 2 + 0.08
+            points.push({ x: Math.cos(angle) * 0.55, y: Math.sin(angle) * 0.55 })
+          }
+          return points
+        }
+        if (shape === 'spiral') {
+          const arms = 3
+          const perArm = 26
+          for (let arm = 0; arm < arms; arm += 1) {
+            for (let step = 0; step < perArm; step += 1) {
+              const k = step / (perArm - 1)
+              const radius = 0.12 + k * 0.98
+              const angle = k * Math.PI * 3.1 + (arm / arms) * Math.PI * 2
+              points.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius })
+            }
+          }
+          return points
+        }
+        if (shape === 'smiley') {
+          const ring = 64
+          for (let index = 0; index < ring; index += 1) {
+            const angle = (index / ring) * Math.PI * 2
+            points.push({ x: Math.cos(angle), y: Math.sin(angle) })
+          }
+          const eye = 7
+          for (let index = 0; index < eye; index += 1) {
+            const angle = (index / eye) * Math.PI * 2
+            points.push({ x: -0.35 + Math.cos(angle) * 0.1, y: -0.3 + Math.sin(angle) * 0.1 })
+            points.push({ x: 0.35 + Math.cos(angle) * 0.1, y: -0.3 + Math.sin(angle) * 0.1 })
+          }
+          const mouth = 26
+          for (let index = 0; index < mouth; index += 1) {
+            const angle = Math.PI * 0.16 + (index / (mouth - 1)) * Math.PI * 0.68
+            points.push({ x: Math.cos(angle) * 0.62, y: 0.06 + Math.sin(angle) * 0.52 })
+          }
+          return points
+        }
+        return null
+      }
+
+      /** One shaped burst: sparks fly from the center to a parametric outline. */
+      function explodeShaped(rocket, shape) {
+        const palette = FIREWORK_SHAPE_COLORS[shape] || FIREWORK_COLORS
+        const points = burstPoints(shape)
+        if (!points || points.length === 0) return
+        const budget = Math.max(0, maxSparks - sparks.length)
+        if (budget <= 0) return
+        const repeat = Math.max(1, Math.min(3, Math.round(densityFactor)))
+        const total = Math.min(budget, points.length * repeat)
+        const base = Math.min(width, height) * (shape === 'heart' ? 0.2 : 0.165) * (0.85 + Math.random() * 0.3)
+        const speed = base / 0.55
+        for (let index = 0; index < total; index += 1) {
+          const point = points[index % points.length]
+          const layer = index < points.length ? 1 : 0.94 + Math.random() * 0.06
+          const jitter = 0.025
+          const targetX = point.x * layer + (Math.random() - 0.5) * jitter
+          const targetY = point.y * layer + (Math.random() - 0.5) * jitter
+          sparks.push({
+            x: rocket.x,
+            y: rocket.y,
+            px: rocket.x,
+            py: rocket.y,
+            vx: targetX * speed * (0.95 + Math.random() * 0.1),
+            vy: targetY * speed * (0.95 + Math.random() * 0.1),
+            age: 0,
+            life: 1.55 + Math.random() * 0.7,
+            size: (1.9 + Math.random() * 1.5) * (1 + (densityFactor - 1) * 0.08),
+            color: palette[Math.floor(Math.random() * palette.length)],
+            twinkle: Math.random() < 0.45 ? Math.random() * Math.PI * 2 : -1,
+            gravity: shape === 'smiley' ? 10 : 13,
+            drag: 0.9915,
+          })
+        }
+        flashes.push({
+          x: rocket.x,
+          y: rocket.y,
+          age: 0,
+          life: 0.5,
+          radius: (shape === 'heart' ? 150 : 120) + Math.random() * 70,
+          color: palette[0],
+        })
+      }
+
+      /** Willow: a classic burst that droops straight down and lingers. */
+      function explodeWillow(rocket) {
+        const palette = FIREWORK_SHAPE_COLORS.willow
+        const budget = Math.max(0, maxSparks - sparks.length)
+        const amount = Math.min(budget, Math.round((85 + Math.random() * 60) * densityFactor))
+        if (amount <= 0) return
+        for (let index = 0; index < amount; index += 1) {
+          const angle = Math.random() * Math.PI * 2
+          const speed = 70 + Math.random() * 150
+          sparks.push({
+            x: rocket.x,
+            y: rocket.y,
+            px: rocket.x,
+            py: rocket.y,
+            vx: Math.cos(angle) * speed * 0.8,
+            vy: Math.sin(angle) * speed * 0.55 - 35,
+            age: 0,
+            life: 2.5 + Math.random() * 1.3,
+            size: 1.6 + Math.random() * 1.2,
+            color: palette[Math.floor(Math.random() * palette.length)],
+            twinkle: Math.random() < 0.3 ? Math.random() * Math.PI * 2 : -1,
+            gravity: 230,
+            drag: 0.989,
+          })
+        }
+        flashes.push({ x: rocket.x, y: rocket.y, age: 0, life: 0.42, radius: 90 + Math.random() * 60, color: palette[0] })
+      }
+
       function update(step) {
-        const friction = Math.pow(0.985, step * 60)
         for (let index = rockets.length - 1; index >= 0; index -= 1) {
           const rocket = rockets[index]
           rocket.y += rocket.vy * step
@@ -916,8 +1156,9 @@ window.__ModuleLoader__.load({
         }
         for (let index = sparks.length - 1; index >= 0; index -= 1) {
           const spark = sparks[index]
+          const friction = Math.pow(typeof spark.drag === 'number' ? spark.drag : 0.985, step * 60)
           spark.vx *= friction
-          spark.vy = spark.vy * friction + FIREWORK_GRAVITY * step
+          spark.vy = spark.vy * friction + (typeof spark.gravity === 'number' ? spark.gravity : FIREWORK_GRAVITY) * step
           spark.px = spark.x
           spark.py = spark.y
           spark.x += spark.vx * step
@@ -1198,8 +1439,11 @@ window.__ModuleLoader__.load({
         }
         await playOnce(key, pending.dayKey)
       }
-      function playFireworks(force) {
-        const fireworkSettings = store.settings.fireworks || DEFAULT_SETTINGS.fireworks
+      function playFireworks(force, overrideFireworks) {
+        const fireworkSettings =
+          overrideFireworks !== null && typeof overrideFireworks === 'object'
+            ? normalizeFireworkSettings(overrideFireworks)
+            : store.settings.fireworks || DEFAULT_SETTINGS.fireworks
         if (!force && fireworkSettings.enabled !== true) return
         const duration = FIREWORK_DURATIONS[fireworkSettings.duration] || FIREWORK_DURATIONS.long
         if (activeFireworks) {
@@ -1215,6 +1459,7 @@ window.__ModuleLoader__.load({
             duration: duration,
             scope: fireworkSettings.scope,
             density: fireworkSettings.density,
+            shape: fireworkSettings.shape,
             onEnd: function () {
               activeFireworks = null
             },
@@ -1297,8 +1542,8 @@ window.__ModuleLoader__.load({
           function () {
             return h(SettingsDialog, {
               t: t,
-              onPreview: function () {
-                playFireworks(true)
+              onPreview: function (fireworks) {
+                playFireworks(true, fireworks)
               },
             })
           },

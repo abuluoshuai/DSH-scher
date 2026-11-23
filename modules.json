@@ -114,15 +114,15 @@
       "id": "countdown",
       "row": "dsh-offwork-countdown",
       "package": "dsh-offwork-countdown",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "directory": "plugins/dsh-offwork-countdown",
       "title": {
         "zh": "下班倒计时",
         "en": "Off-work countdown"
       },
       "summary": {
-        "zh": "输入框下方的下班倒计时胶囊，到点后转成加班计时；到点由 Host 先闪烁任务栏，回到前台再播放可定制烟花（范围/密度/时长，设置里可预览）。",
-        "en": "A countdown pill under the composer that turns into an overtime timer after the end time; the Host flashes the taskbar at the end time and the configurable fireworks play once the window is in the foreground."
+        "zh": "输入框下方的下班倒计时胶囊，到点后转成加班计时；到点由 Host 先闪烁任务栏，回到前台再播放可定制烟花（9 种样式 + 范围/密度/时长，设置里可预览）。",
+        "en": "A countdown pill under the composer that turns into an overtime timer after the end time; the Host flashes the taskbar at the end time and the configurable fireworks (9 styles plus scope/density/duration) play once the window is in the foreground."
       },
       "sizeMB": 0.05,
       "defaultSelected": true,
