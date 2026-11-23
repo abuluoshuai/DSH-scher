@@ -8,7 +8,7 @@ DeepSeek Harness（dsh）Web 界面插件：在输入框下方常驻一枚倒计
 
 - **工作日倒计时**：默认 `09:00 → 18:00`，胶囊显示 `距离下班 08:24:00`，右侧一条细进度条表示今天从上班走到现在走了多远。
 - **到点切换**：下班时间一到，文案先跳成「下班啦」，随后变成加班计时（`已下班 00:03:12`），小圆点轻轻呼吸一下。
-- **下班烟花**：下班时间一到，在 DSH 窗口上放一段烟花（默认整窗、10 秒、密度「多」）。范围 / 密度 / 时长都能在设置里调，并带一个「预览烟花」按钮随时试放。
+- **下班烟花**：下班时间一到，**先闪任务栏**；如果你不在 DSH 前面，烟花会挂起，等你点击 DSH / 把它切回前台再放（默认整窗、10 秒、密度「多」）。范围 / 密度 / 时长都能在设置里调，并带一个「预览烟花」按钮随时试放。
 - **周末**：周六周日只显示「周末快乐」，不倒数。
 - **改时间**：点胶囊弹出居中设置框，改上班 / 下班时间即时生效。
 - **跟随主题**：只使用 dsh 主题 token（`--dsw-alias-*`），亮色暗色自动适配；文案走 Client locale 服务，中英双语。
@@ -29,12 +29,15 @@ dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown
 - 上班时间 / 下班时间：`<input type="time">`，改完点「保存」；「恢复默认」回到 `09:00 – 18:00`。
 - Esc、点遮罩、「取消」都可以关掉设置框。
 
-设置只保存在**本机浏览器**的 `localStorage`（键名 `dsh.offwork-countdown.settings.v1`），不上传、不写会话日志。
+设置保存在 **Host 侧**的 `$DSH_HOME/offwork-countdown/settings.json`（`DSH_HOME` 默认 `~/.dsh`）——插件升级、DSH 重启换端口都不会重置。浏览器 `localStorage`（键名 `dsh.offwork-countdown.settings.v1`）只作为 Host 路由不可用时的兜底副本；不上传、不写会话日志。
 
 ## 下班烟花
 
-工作日走到下班时间的那一刻，窗口上会放一段烟花：火箭从底部升起，在空中炸成彩色火花。
-默认整窗、10 秒、密度「多」，只在真实到点自动放一次/天；系统开启「减少动态效果」时自动跳过。
+工作日走到下班时间的那一刻，**先让任务栏图标闪烁**（即使 DSH 在后台也闪，任务栏会一直提示直到你把窗口切回来）；
+**只有 DSH 回到前台时**才放烟花——在后台时动画挂起，等你点击 DSH 或把它切回前台再播放，
+避免「放完才发现错过了」。默认整窗、10 秒、密度「多」；**每个到点事件**只自动放一次
+（同一天改了下班时间、到了新的点，会再放一次）。到点判断由 **Host 侧独立定时**完成，页面在后台被
+Chromium 节流也不会漏。系统开启「减少动态效果」时只闪任务栏、不放动画。
 烟花播放时是一层透明的全窗口 canvas（`pointer-events: none`），不挡点击、不挡输入，结束后自动移除。
 
 点胶囊 →「下班烟花」组里可以调：
@@ -46,7 +49,8 @@ dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown
 - **预览烟花**：随时试放一次，不占用当天的自动播放次数。
 
 实现：`client.js` 内手绘 canvas（`requestAnimationFrame` + 重力/摩擦/拖尾），无第三方依赖、无声音；
-颜色是固定的霓虹色盘，不跟随宿主主题 token。
+颜色是固定的霓虹色盘，不跟随宿主主题 token。任务栏闪烁由 Host 侧调用 PowerShell + Win32 `FlashWindowEx` 完成
+（仅 Windows，失败静默），所以页面在后台时也能提示你。
 
 ## 实现
 
@@ -54,7 +58,9 @@ dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown
 
 - `client.js` 通过 `window.__ModuleLoader__` 注册两个槽位：`conversation.composer.dock`（倒计时胶囊）与 `shell.overlay`（设置框，浮在所有列之上，不会被输入框卡片盖住）。
 - 两个槽位共用一个极小的模块级 store；胶囊只有一颗 1 秒的时钟，卸载时随 `ctx.effect` 清掉。
-- `index.js` 只有空的 `apply()`：插件全部逻辑在浏览器侧，Host 行只为让 bundle 出现在插件清单里。
+- `index.js` 是 Host 半边：把设置持久化到 `$DSH_HOME/offwork-countdown/settings.json`（原子写入），
+  并提供 `/api/offwork-countdown/settings` 与 `/api/offwork-countdown/flash` 两个路由；`lib/flash.js` +
+  `scripts/flash-window.ps1` 负责 Windows 任务栏闪烁。没有 Host 路由时客户端退回 `localStorage`。
 
 ## 开发
 
@@ -66,7 +72,9 @@ python scripts/make-icon.py    # 重新生成 assets/icon-256.png（Pillow + num
 
 ```
 client.js            浏览器侧：槽位注册、倒计时组件、设置对话框
-index.js             Host 侧：空 apply
+index.js             Host 侧：设置持久化 + 任务栏闪烁路由
+lib/flash.js         任务栏闪烁（PowerShell + FlashWindowEx）
+scripts/flash-window.ps1  Win32 闪烁 helper
 cordis.patch.yml     bundle patch
 locale/{zh,en}.json  插件清单里的标题与描述
 icon.svg             插件图标
@@ -81,7 +89,7 @@ MIT © ZydFirst
 
 ## English
 
-An off-work countdown for the DeepSeek Harness Web UI. A pill under the message composer counts down to the end of the workday (default 09:00–18:00), with a thin progress bar for the day so far. When the end time arrives it switches to an overtime timer and plays a fireworks animation across the DSH window — scope (whole window / conversation), density (low / normal / high / max) and duration (3 / 6 / 10 / 15 s) are configurable in the pill's settings dialog, which also has a preview button. Weekends just say "Weekend". Click the pill to set your own hours — the setting lives in the browser's `localStorage` (`dsh.offwork-countdown.settings.v1`) and never leaves the machine.
+An off-work countdown for the DeepSeek Harness Web UI. A pill under the message composer counts down to the end of the workday (default 09:00–18:00), with a thin progress bar for the day so far. When the end time arrives it switches to an overtime timer, asks the desktop window to flash its taskbar button, and plays a fireworks animation across the DSH window — but only once the window is in the foreground: while DSH is in the background the animation waits for you instead of playing unseen. Scope, density and duration are configurable in the pill's settings dialog, which also has a preview button. Weekends just say "Weekend". Settings are stored in `$DSH_HOME/offwork-countdown/settings.json` on the Host side (so plugin updates and Host restarts do not reset them); the browser's `localStorage` is only a fallback copy. Nothing leaves the machine.
 
 ```sh
 dsh plugin --profile web add github:ZydFirst/dsh-offwork-countdown

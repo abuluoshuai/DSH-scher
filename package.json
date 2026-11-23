@@ -1,6 +1,6 @@
 {
   "name": "dsh-scher",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Scher 个人插件整合包：工作区侧栏、配色方案（含完成时闪烁任务栏）、右侧栏、远程工作区、下班倒计时、系统监控、全局待办、IM 机器人、ComfyUI 工作台；安装时可逐模块选择要哪些。",
   "license": "MIT",
   "type": "module",

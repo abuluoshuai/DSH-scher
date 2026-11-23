@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.3 — 2026-11-23
+
+- **dsh-offwork-countdown 升到 0.2.2（本地修复）**：两个实际使用问题。
+  - **设置不再被重置**：时间点与烟花参数从浏览器 `localStorage` 移到 Host 侧
+    `$DSH_HOME/offwork-countdown/settings.json`（原子写入）。DSH 重启换端口/插件升级都不会再
+    回到默认值；旧 `localStorage` 副本会自动迁移一次。
+  - **到点先闪任务栏、回到前台再放烟花**：到点判断改由 Host 侧独立定时（不依赖页面计时器，
+    后台被 Chromium 节流也不会漏），Host 先闪烁任务栏并写临时的 pending；页面回到前台
+    （或重新加载）时再播放烟花。按「到点事件」去重，同一天改时间到新点可再次播放。
+  - README / modules.json / CHANGELOG 同步；Scher 版本 0.8.3。
+
 ## 0.8.2 — 2026-11-21
 
 - **dsh-global-todo 升到 0.23.4（本地改动）**：侧栏/待办交互按实际用法重做。

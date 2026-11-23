@@ -21,6 +21,8 @@ window.__ModuleLoader__.load({
 
     const NS = 'offwork-countdown'
     const STORAGE_KEY = 'dsh.offwork-countdown.settings.v1'
+    /** Host 半边的路由前缀：设置持久化与任务栏闪烁。 */
+    const HOST_API = 'api/offwork-countdown'
     const FIREWORK_SCOPES = ['conversation', 'window']
     const FIREWORK_DENSITIES = ['low', 'normal', 'high', 'ultra']
     const DEFAULT_SETTINGS = {
@@ -195,23 +197,96 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function loadSettings() {
+    /**
+     * 设置存在 Host 侧文件里（$DSH_HOME/offwork-countdown/settings.json）。
+     *
+     * 只存 localStorage 是不够的：DSH 每次重启可能换一个随机端口，origin 一变
+     * localStorage 就是空的，升级/重启就会看到「设置被重置」。这里的读法以 Host
+     * 文件为准，localStorage 只作为 Host 路由不可用时的兜底。
+     */
+    function readLocalSettings() {
       try {
         const stored = window.localStorage.getItem(STORAGE_KEY)
-        if (!stored) return DEFAULT_SETTINGS
-        return normalizeSettings(JSON.parse(stored))
+        return stored === null ? null : normalizeSettings(JSON.parse(stored))
       } catch (error) {
-        return DEFAULT_SETTINGS
+        return null
       }
     }
 
-    function persistSettings(settings) {
+    function loadSettings() {
+      return readLocalSettings() || DEFAULT_SETTINGS
+    }
+
+    function persistLocalSettings(settings) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
       } catch (error) {
-        // 隐私模式或存储被禁用：本次会话照样生效，只是不落盘。
+        /* 隐私模式或存储被禁用：本次会话照样生效，只是不落盘。 */
       }
     }
+
+    async function hostRequest(path, options = {}) {
+      const response = await fetch(`${HOST_API}/${path}`, {
+        method: options.method || 'GET',
+        headers: options.body === undefined ? undefined : { 'content-type': 'application/json' },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        cache: 'no-store',
+        keepalive: options.keepalive === true,
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return response.json()
+    }
+
+    /** Host 文件里的设置；文件还不存在时返回 null。 */
+    async function loadHostSettings() {
+      try {
+        const payload = await hostRequest('settings')
+        if (payload === null || typeof payload !== 'object' || payload.ok !== true) return null
+        const settings = payload.data === null || typeof payload.data !== 'object' ? null : payload.data.settings
+        return settings === null || settings === undefined ? null : normalizeSettings(settings)
+      } catch (error) {
+        return null
+      }
+    }
+
+    async function saveHostSettings(settings) {
+      try {
+        await hostRequest('settings', { method: 'POST', body: { settings } })
+      } catch (error) {
+        /* Host 路由不可用（老版本/精简组合）：localStorage 里仍有副本 */
+      }
+    }
+
+    async function requestTaskbarFlash() {
+      try {
+        await hostRequest('flash', { method: 'POST', body: {}, keepalive: true })
+      } catch (error) {
+        /* 非 Windows 或 Host 尚未重启时没有闪烁，烟花逻辑继续 */
+      }
+    }
+
+    /** Host 在到点时记下的「今天烟花待播放」标记（页面在后台也不丢）。 */
+    async function takeHostPending() {
+      try {
+        const payload = await hostRequest('pending')
+        if (payload === null || typeof payload !== 'object' || payload.ok !== true) return null
+        const pending = payload.data === null || typeof payload.data !== 'object' ? null : payload.data.pending
+        return pending !== null && typeof pending === 'object' && typeof pending.dayKey === 'string' ? pending : null
+      } catch (error) {
+        return null
+      }
+    }
+
+    async function clearHostPending(dayKey) {
+      try {
+        await hostRequest('played', { method: 'POST', body: { dayKey } })
+      } catch (error) {
+        /* 清不掉最多下次再判断一次，不影响播放 */
+      }
+    }
+
+    /** 保存过的设置不再被启动时的异步读取覆盖。 */
+    let settingsTouched = false
 
     /**
      * 一秒一次的世界观：工作日数到下班、到点转加班、周末只报周末。
@@ -286,9 +361,11 @@ window.__ModuleLoader__.load({
     }
 
     function commitSettings(next) {
+      settingsTouched = true
       store.settings = next
       store.open = false
-      persistSettings(next)
+      persistLocalSettings(next)
+      void saveHostSettings(next)
       emit()
     }
 
@@ -1037,8 +1114,90 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // 设置以 Host 文件为准：启动时读回。第一次读到空文件时，把旧版本留在
+      // 本 origin 的 localStorage 副本迁上去；之后两边保持同步。
+      void (async function hydrateSettings() {
+        const host = await loadHostSettings()
+        if (host !== null) {
+          if (!settingsTouched) {
+            store.settings = host
+            persistLocalSettings(host)
+            emit()
+          }
+          return
+        }
+        const local = readLocalSettings()
+        if (local !== null) await saveHostSettings(local)
+      })()
+
+      // Host 到点时页面可能不在前台：它先闪任务栏并留下 pending；页面回到
+      // 前台（或重新加载）时把这一天的烟花补上，页面计时器被节流也不影响。
+      void consumeHostPending()
+
       // 烟花：一个当前实例 + 一个每秒检查「是否刚跨过下班时间」的看门狗。
       let activeFireworks = null
+      function pageInForeground() {
+        try {
+          return document.visibilityState === 'visible' && document.hasFocus()
+        } catch (error) {
+          return true
+        }
+      }
+
+      // 按「到点事件」去重，而不是按下班日期去重：
+      //  - 页面内的跨点检测用 dayKey + end 作为一个事件；
+      //  - Host 的 pending 用它的写入时间 at 作为事件。
+      // 同一天改了几次下班时间（测试或加班后重设）时，每一次到点都能各自播一次；
+      // 同一事件不会因为 focus/visibility 反复触发而重复播放。
+      let lastPlayedKey = ''
+      let lastPlayedAt = 0
+      let queuedPlay = null
+
+      function dayKeyNow() {
+        return new Date().toDateString()
+      }
+
+      async function playOnce(key, dayKey) {
+        if (lastPlayedKey === key) return
+        if (!pageInForeground()) {
+          queuedPlay = { key, dayKey }
+          return
+        }
+        lastPlayedKey = key
+        lastPlayedAt = Date.now()
+        queuedPlay = null
+        await clearHostPending(dayKey)
+        playFireworks()
+      }
+
+      function playPendingFireworks() {
+        if (queuedPlay === null || !pageInForeground()) return
+        const entry = queuedPlay
+        queuedPlay = null
+        void playOnce(entry.key, entry.dayKey)
+      }
+
+      function queueFireworks(dayKey, end) {
+        void playOnce(`crossing:${String(dayKey)}:${String(end)}`, dayKey)
+      }
+
+      async function consumeHostPending() {
+        const pending = await takeHostPending()
+        if (pending === null) {
+          return
+        }
+        if (pending.dayKey !== dayKeyNow()) {
+          await clearHostPending(pending.dayKey)
+          return
+        }
+        const key = `pending:${String(pending.at)}`
+        // 同一个事件刚由跨点检测播过时，只清理，不重播。
+        if (lastPlayedKey === key || Math.abs(pending.at - lastPlayedAt) < 10000) {
+          await clearHostPending(pending.dayKey)
+          return
+        }
+        await playOnce(key, pending.dayKey)
+      }
       function playFireworks(force) {
         const fireworkSettings = store.settings.fireworks || DEFAULT_SETTINGS.fireworks
         if (!force && fireworkSettings.enabled !== true) return
@@ -1067,6 +1226,21 @@ window.__ModuleLoader__.load({
       }
 
       ctx.effect(function () {
+        const onForeground = function (event) {
+          playPendingFireworks()
+          void consumeHostPending()
+        }
+        window.addEventListener('focus', onForeground)
+        document.addEventListener('visibilitychange', onForeground)
+        window.addEventListener('pointerdown', onForeground, true)
+        return function () {
+          window.removeEventListener('focus', onForeground)
+          document.removeEventListener('visibilitychange', onForeground)
+          window.removeEventListener('pointerdown', onForeground, true)
+        }
+      }, 'offwork-countdown: fireworks foreground')
+
+      ctx.effect(function () {
         return function () {
           if (activeFireworks) {
             try {
@@ -1092,11 +1266,12 @@ window.__ModuleLoader__.load({
             current.phase === 'off' &&
             previous.dayKey === current.dayKey &&
             previous.end === current.end &&
-            store.settings.fireworks.enabled === true &&
-            !prefersReducedMotion() &&
-            claimDailyFireworks(current.dayKey)
+            store.settings.fireworks.enabled === true
           ) {
-            playFireworks()
+            // 先在任务栏提示：不管 DSH 在不在前台，用户都应该知道到点了。
+            void requestTaskbarFlash()
+            // 动画只在用户看得见的时候放；否则挂起，等窗口回到前台。
+            if (!prefersReducedMotion()) queueFireworks(current.dayKey, current.end)
           }
           previous = current
         }

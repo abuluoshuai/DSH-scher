@@ -1,7 +1,7 @@
 {
   "name": "dsh-offwork-countdown",
-  "version": "0.2.1",
-  "description": "下班倒计时：输入框下方常驻一枚倒计时胶囊，显示距离下班还剩多久，可设置上下班时间；到点后转为加班计时，并在窗口上放一段可自定义的烟花。",
+  "version": "0.2.2",
+  "description": "下班倒计时：输入框下方常驻一枚倒计时胶囊，显示距离下班还剩多久，可设置上下班时间；设置保存在 Host 侧（$DSH_HOME/offwork-countdown），升级/重启不会重置；到点先闪烁任务栏，回到前台再播放可自定义的烟花。",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -32,6 +32,8 @@
   "files": [
     "index.js",
     "client.js",
+    "lib/flash.js",
+    "scripts/flash-window.ps1",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
