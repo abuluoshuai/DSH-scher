@@ -2327,6 +2327,18 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         }
       }
 
+      // A right-click anywhere on the card should offer the same actions as the
+      // kebab: forward it to that trigger so there is exactly one menu component.
+      const openRowMenu = (event) => {
+        const target = event.target
+        if (target !== null && target !== undefined && typeof target.closest === 'function') {
+          if (target.closest('input, textarea, [contenteditable="true"], .gt-menu') !== null) return
+        }
+        if (typeof event.preventDefault === 'function') event.preventDefault()
+        const trigger = event.currentTarget.querySelector('.gt-actions .gt-iconbtn[aria-haspopup="menu"]')
+        if (trigger !== null && trigger !== undefined && typeof trigger.click === 'function') trigger.click()
+      }
+
       return h(
         'div',
         {
@@ -2337,6 +2349,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
           'data-open': open ? '1' : '0',
           'data-selected': picked === true ? '1' : '0',
           role: 'listitem',
+          onContextMenu: openRowMenu,
         },
         h(
           'div',

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2 — 2026-11-26
+
+- **待办整行右键菜单（dsh-global-todo 0.23.6）**：在待办卡片任意位置右键，弹出与右侧 ⋮ 完全相同的操作菜单；
+  输入框/文本框区域保留原生右键，不影响粘贴。
+- modules.json / README / CHANGELOG 同步；Scher 版本 0.9.2。
+
 ## 0.9.1 — 2026-11-25
 
 - **待办状态背景 + 配色联动（dsh-global-todo 0.23.5 / dsh-color-style 0.8.2）**：

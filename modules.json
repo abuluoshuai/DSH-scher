@@ -167,7 +167,7 @@
       "id": "global-todo",
       "row": "global-todo",
       "package": "dsh-global-todo",
-      "version": "0.23.5",
+      "version": "0.23.6",
       "directory": "plugins/dsh-global-todo",
       "title": {
         "zh": "全局待办",
@@ -183,8 +183,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。 待办状态底色跟随 color-style 的会话状态配色（进行中为流光带），进行中时菜单显示「标为未开始」。",
-        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session. Todo surface tints follow color-style session-status colors (in-progress uses the sweep), and the menu offers \"mark not started\" while in progress."
+        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。 待办状态底色跟随 color-style 的会话状态配色（进行中为流光带），进行中时菜单显示「标为未开始」。 整行右键可弹出与右侧 ⋮ 相同的操作菜单。",
+        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session. Todo surface tints follow color-style session-status colors (in-progress uses the sweep), and the menu offers \"mark not started\" while in progress. Right-clicking anywhere on a todo row opens the same actions as the kebab menu."
       }
     },
     {
