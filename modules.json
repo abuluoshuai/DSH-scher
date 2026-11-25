@@ -106,8 +106,8 @@
         }
       ],
       "notes": {
-        "zh": "推荐与「右侧栏」一起安装：远程资源管理器、文件与终端会注册进右侧栏；只装 remote 也能用 DSH 原生侧栏。",
-        "en": "Recommended together with Better sidebar: the remote explorer, files and terminals register into it. Without it, the native DSH sidebar still works."
+        "zh": "推荐与「右侧栏」一起安装：远程资源管理器、文件与终端会注册进右侧栏；只装 remote 也能用 DSH 原生侧栏。本地 UI 定制：远程目录选择器改为顶部服务器列表 + 下方可展开目录树（上一级 / 主目录 / 刷新），本机按钮文案为「浏览文件夹」。",
+        "en": "Recommended together with Better sidebar: the remote explorer, files and terminals register into it. Without it, the native DSH sidebar still works. Local UI: the remote directory picker is a server list plus an expandable folder tree (Up / Home / Refresh), and the local button reads \"Browse folder\"."
       }
     },
     {

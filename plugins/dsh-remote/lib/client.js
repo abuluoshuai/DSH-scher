@@ -596,7 +596,7 @@ window.__ModuleLoader__.load({
         'picker.localIntro': '弹出系统文件夹对话框选择；不可用时用内置目录浏览，也可直接输入本机目录。',
         'picker.localPlaceholder': '本机目录，如 C:\\Users\\you\\project',
         'picker.useLocalPath': '选用此本地路径',
-        'picker.openSysPicker': '打开系统文件夹选择器',
+        'picker.openSysPicker': '浏览文件夹',
         'picker.opening': '打开中…',
         'picker.remoteMachine': '远程机器:',
         'picker.chooseMachine': '— 选择机器 —',
@@ -611,6 +611,11 @@ window.__ModuleLoader__.load({
         'picker.setRemoteWs': '设为远程工作区',
         'picker.mirroring': '镜像中…',
         'picker.cancel': '取消',
+      'picker.up': '上一级',
+      'picker.homeDir': '主目录',
+      'picker.refresh': '刷新',
+      'picker.openDir': '打开',
+      'picker.hintTree': '点击文件夹展开/收起 · 上一级/主目录/刷新 · Esc 关闭',
         'confirm.title': '请确认',
         'picker.selectDir': '选择工作目录',
         'picker.selected': '所选: {path}',
@@ -1201,7 +1206,7 @@ window.__ModuleLoader__.load({
         'picker.localIntro': 'Opens the system folder dialog; when unavailable, uses the built-in directory browser. You can also type a local path directly.',
         'picker.localPlaceholder': 'Local directory, e.g. C:\\Users\\you\\project',
         'picker.useLocalPath': 'Use this local path',
-        'picker.openSysPicker': 'Open system folder picker',
+        'picker.openSysPicker': 'Browse folder',
         'picker.opening': 'Opening…',
         'picker.remoteMachine': 'Remote machine:',
         'picker.chooseMachine': '— choose a machine —',
@@ -1216,6 +1221,11 @@ window.__ModuleLoader__.load({
         'picker.setRemoteWs': 'Set as remote workspace',
         'picker.mirroring': 'Mirroring…',
         'picker.cancel': 'Cancel',
+      'picker.up': 'Up',
+      'picker.homeDir': 'Home',
+      'picker.refresh': 'Refresh',
+      'picker.openDir': 'Open',
+      'picker.hintTree': 'Click a folder to expand/collapse · Up / Home / Refresh · Esc closes',
         'confirm.title': 'Please confirm',
         'picker.selectDir': 'Select working directory',
         'picker.selected': 'Selected: {path}',
@@ -3214,6 +3224,270 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Parent of a display-form remote path (both separators); null at a root. */
+    function remoteParentOf(value) {
+      const text = String(value || '')
+      if (!text || text === '/') return null
+      const win = /^[a-zA-Z]:/.test(text)
+      if (win && /^[a-zA-Z]:\\?$/.test(text)) return null // drive root
+      const sep = win ? '\\' : '/'
+      const index = text.lastIndexOf(sep)
+      if (index < 0) return null
+      if (index === 0) return '/'
+      const parent = text.slice(0, index)
+      if (win && /^[a-zA-Z]:$/.test(parent)) return parent + '\\'
+      return parent || '/'
+    }
+
+    /**
+     * Remote directory tree: machine tabs on top, a lazy expandable folder tree
+     * below, and Up / Home / Refresh tools. Replaces the old machine dropdown +
+     * recent workspace chips + single-level browser.
+     */
+    function RemoteTreeBrowser(props) {
+      const { machines, machineId, busy, tr, loadDir, resolveHome, onMachine, onPick, onCancel } = props
+      const [root, setRoot] = React.useState(null)
+      const [children, setChildren] = React.useState({})
+      const [expanded, setExpanded] = React.useState({})
+      const [selected, setSelected] = React.useState('')
+      const [loadingRoot, setLoadingRoot] = React.useState(false)
+      const [err, setErr] = React.useState('')
+      const seqRef = React.useRef(0)
+      const loadDirRef = React.useRef(loadDir)
+      loadDirRef.current = loadDir
+      const expandedRef = React.useRef(expanded)
+      expandedRef.current = expanded
+      const selectedRef = React.useRef(selected)
+      selectedRef.current = selected
+
+      React.useEffect(() => {
+        if (!machineId) {
+          setRoot(null)
+          setChildren({})
+          setExpanded({})
+          setSelected('')
+          return undefined
+        }
+        let alive = true
+        const seq = ++seqRef.current
+        setLoadingRoot(true)
+        setErr('')
+        setRoot(null)
+        setChildren({})
+        setExpanded({})
+        setSelected('')
+        loadDirRef.current(machineId, '', true).then((node) => {
+          if (!alive || seq !== seqRef.current) return
+          const path = node.path || ''
+          setRoot({ path, items: node.all || [] })
+          setSelected(path)
+        }).catch((error) => {
+          if (alive && seq === seqRef.current) setErr(String((error && error.message) || error))
+        }).finally(() => {
+          if (alive && seq === seqRef.current) setLoadingRoot(false)
+        })
+        return () => { alive = false }
+      }, [machineId])
+
+      const loadChildren = (path, fresh) => new Promise((resolve) => {
+        setChildren((previous) => Object.assign({}, previous, { [path]: { loading: true, items: (previous[path] && previous[path].items) || [] } }))
+        loadDirRef.current(machineId, path, fresh).then((node) => {
+          setChildren((previous) => Object.assign({}, previous, { [path]: { loading: false, items: node.all || [] } }))
+          resolve(node)
+        }).catch((error) => {
+          setChildren((previous) => Object.assign({}, previous, { [path]: { loading: false, items: [], error: String((error && error.message) || error) } }))
+          resolve(null)
+        })
+      })
+
+      const toggleDir = (item) => {
+        if (loadingRoot) return
+        setSelected(item.path)
+        const path = item.path
+        if (expandedRef.current[path]) {
+          setExpanded((previous) => {
+            const next = Object.assign({}, previous)
+            delete next[path]
+            return next
+          })
+          return
+        }
+        setExpanded((previous) => Object.assign({}, previous, { [path]: true }))
+        const cached = children[path]
+        if (!cached || cached.error) void loadChildren(path, false)
+      }
+
+      const loadRootAt = (target, fresh) => {
+        if (!machineId) return
+        const seq = ++seqRef.current
+        setLoadingRoot(true)
+        setErr('')
+        loadDirRef.current(machineId, target, fresh === true).then((node) => {
+          if (seq !== seqRef.current) return
+          const path = node.path || target || ''
+          setRoot({ path, items: node.all || [] })
+          setChildren({})
+          setExpanded({})
+          setSelected(path)
+        }).catch((error) => {
+          if (seq === seqRef.current) setErr(String((error && error.message) || error))
+        }).finally(() => {
+          if (seq === seqRef.current) setLoadingRoot(false)
+        })
+      }
+
+      const reloadRoot = () => {
+        if (!root) {
+          loadRootAt('', true)
+          return
+        }
+        loadRootAt(root.path, true)
+      }
+
+      const refresh = () => {
+        if (loadingRoot || !machineId) return
+        if (!root) {
+          reloadRoot()
+          return
+        }
+        loadRootAt(root.path, true)
+      }
+
+      const revealPath = async (target) => {
+        const rootPath = root ? root.path : ''
+        const chain = []
+        let cursor = String(target || '')
+        for (let guard = 0; guard < 64; guard += 1) {
+          const parent = remoteParentOf(cursor)
+          if (parent === null || parent === rootPath) break
+          chain.unshift(parent)
+          cursor = parent
+        }
+        for (const dir of chain) {
+          setExpanded((previous) => Object.assign({}, previous, { [dir]: true }))
+          await loadChildren(dir, false)
+        }
+        setSelected(target)
+      }
+
+      const goHome = () => {
+        if (loadingRoot || !machineId) return
+        setErr('')
+        Promise.resolve().then(() => resolveHome()).then((target) => {
+          if (typeof target !== 'string' || target === '') return undefined
+          loadRootAt(target, false)
+          return undefined
+        }).catch((error) => setErr(String((error && error.message) || error)))
+      }
+
+      const goUp = () => {
+        if (loadingRoot) return
+        const base = (root && root.path) || selectedRef.current || ''
+        const parent = remoteParentOf(base)
+        if (parent !== null && machineId) loadRootAt(parent, false)
+      }
+
+      const rowBase = { display: 'flex', gap: 6, alignItems: 'center', padding: '4px 8px', fontSize: 13, borderRadius: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }
+
+      const renderRow = (item, depth, rows) => {
+        const indent = 6 + depth * 16
+        const isOpen = !!expanded[item.path]
+        if (item.dir) {
+          rows.push(React.createElement('div', {
+            key: item.path || item.name,
+            role: 'treeitem',
+            'aria-expanded': isOpen,
+            title: tr('picker.enterDir', { name: item.name }),
+            className: 'dsh-rw-list-item',
+            onClick: () => toggleDir(item),
+            onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleDir(item) } },
+            style: Object.assign({}, rowBase, {
+              paddingLeft: indent,
+              background: selected === item.path ? T.hoverBg : undefined,
+              color: selected === item.path ? T.ok : T.label,
+              fontWeight: selected === item.path ? 600 : 400,
+            }),
+          },
+            React.createElement('span', { 'aria-hidden': true, style: { width: 10, flexShrink: 0, color: T.muted, fontSize: 10 } }, isOpen ? '▾' : '▸'),
+            React.createElement('span', { 'aria-hidden': true, style: { flexShrink: 0, display: 'inline-flex', color: T.label } }, IconFolder()),
+            React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, item.name),
+          ))
+        } else {
+          rows.push(React.createElement('div', {
+            key: item.path || item.name,
+            title: tr('picker.fileAt', { name: item.name }),
+            style: Object.assign({}, rowBase, { paddingLeft: indent + 16, opacity: 0.55, cursor: 'default' }),
+          },
+            React.createElement('span', { 'aria-hidden': true, style: { width: 10, flexShrink: 0 } }, ''),
+            React.createElement('span', { 'aria-hidden': true, style: { flexShrink: 0, display: 'inline-flex' } }, IconFile(item.name)),
+            React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, item.name),
+          ))
+        }
+      }
+
+      const renderLevel = (path, depth, rows) => {
+        if (depth > 24) return
+        const items = root && path === root.path
+          ? root.items
+          : ((children[path] && children[path].items) || [])
+        const state = children[path]
+        if (state && state.loading && (!state.items || state.items.length === 0)) {
+          rows.push(React.createElement('div', { key: 'loading:' + path, style: { padding: '3px 8px', paddingLeft: 6 + depth * 16 + 26, fontSize: 11, color: T.muted } }, tr('picker.loading')))
+          return
+        }
+        if (state && state.error) {
+          rows.push(React.createElement('div', { key: 'error:' + path, style: { padding: '3px 8px', paddingLeft: 6 + depth * 16 + 26, fontSize: 11, color: T.danger } }, state.error))
+          return
+        }
+        if (!items.length) {
+          if (depth > 0) rows.push(React.createElement('div', { key: 'empty:' + path, style: { padding: '3px 8px', paddingLeft: 6 + depth * 16 + 26, fontSize: 11, color: T.muted } }, tr('picker.emptyDir')))
+          return
+        }
+        for (const item of items) {
+          renderRow(item, depth, rows)
+          if (item.dir && expanded[item.path]) renderLevel(item.path, depth + 1, rows)
+        }
+      }
+
+      const rows = []
+      if (root) renderLevel(root.path, 0, rows)
+
+      const machineName = (machines.find((machine) => machine.id === machineId) || {}).name || machineId || ''
+      const shownPath = selected || (root ? root.path : '')
+
+      return React.createElement('div', { 'data-rw-tree-browser': true, style: { display: 'flex', flexDirection: 'column', flex: '1 1 0', gap: 8, minHeight: 0 } },
+        React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
+          machines.length
+            ? machines.map((machine) => React.createElement('button', {
+                key: machine.id,
+                type: 'button',
+                className: 'dsh-rw-btn' + (machine.id === machineId ? ' is-active' : ''),
+                disabled: busy,
+                title: machine.name + '  (' + machine.username + '@' + machine.host + ':' + machine.port + ')',
+                onClick: () => { if (machine.id !== machineId) onMachine(machine.id) },
+                style: Object.assign({}, buttonS, { padding: '3px 10px', fontWeight: machine.id === machineId ? 700 : 400, borderColor: machine.id === machineId ? T.ok : T.border, color: machine.id === machineId ? T.ok : T.label }),
+              }, machine.name || machine.host))
+            : React.createElement('span', { style: { fontSize: 12, color: T.muted } }, tr('picker.noMachines')),
+        ),
+        React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: goUp, disabled: loadingRoot || remoteParentOf((root && root.path) || shownPath) === null }, tr('picker.up')),
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: goHome, disabled: loadingRoot || !machineId }, tr('picker.homeDir')),
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: refresh, disabled: !machineId || loadingRoot }, tr('picker.refresh')),
+          React.createElement('span', { title: shownPath, style: { fontSize: 11, opacity: 0.75, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 80 } }, machineName + ':' + shownPath),
+        ),
+        React.createElement('div', { role: 'tree', 'aria-label': tr('picker.selectDir'), style: { flex: 1, minHeight: 160, overflowY: 'auto', overflowX: 'hidden', border: '1px solid ' + T.border, borderRadius: 8, background: T.bg, padding: 4 } },
+          loadingRoot
+            ? React.createElement('div', { style: { padding: 12, fontSize: 12, color: T.muted } }, tr('picker.loading'))
+            : (err ? React.createElement('div', { style: { padding: 12, fontSize: 12, color: T.danger } }, err) : rows),
+        ),
+        React.createElement('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' } },
+          React.createElement('span', { style: { fontSize: 11, opacity: 0.75, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 } }, shownPath ? tr('picker.selected', { path: shownPath }) : ''),
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: buttonS, onClick: onCancel, disabled: busy }, tr('picker.cancel')),
+          React.createElement('button', { type: 'button', className: 'dsh-rw-btn dsh-rw-primary', style: primaryBtnS, onClick: () => { if (selected) onPick(selected) }, disabled: !selected || loadingRoot }, tr('picker.openDir')),
+        ),
+      )
+    }
+
     function DirPicker(props) {
       // initialMachineId lets a caller open the picker FOR a specific machine. The
       // settings page needs it: 选目录 on a non-current machine must not silently
@@ -3710,6 +3984,16 @@ window.__ModuleLoader__.load({
         setPopOpen(false)
       }
 
+      const resolveHomePath = () => {
+        if (!machineId) return Promise.reject(new Error(tr('picker.chooseMachineFirst')))
+        return ensureCurrent(machineId)
+          .then(() => api('POST', '/dsh-remote/home', { machineId }))
+          .then((response) => {
+            if (response && response.home) return String(response.home)
+            throw new Error((response && (response.hint || response.error)) || tr('picker.noHome'))
+          })
+      }
+
       const pickHome = () => {
         // Same identity contract as commitPath: /home is answered by the active
         // pool, so name the machine this picker is showing.
@@ -3934,7 +4218,7 @@ window.__ModuleLoader__.load({
         // backdrop dismisses now.
         onClick: (e) => { if (backdrop.onClick(e) && !externalBusy && !mkdirPrompt) closePicker() },
       },
-        React.createElement('div', { ref: pickerLayerRef, tabIndex: -1, role: 'dialog', 'aria-modal': true, 'aria-labelledby': suggestListId + '-title', 'data-rw-dir-picker': true, className: 'dsh-rw-modal-panel', style: { background: v('--dsw-alias-bg-layer-1', '#18181b'), color: T.label, border: '1px solid ' + T.borderStrong, borderRadius: 12, boxShadow: '0 12px 48px rgba(0,0,0,0.5)', width: 'min(720px, 94vw)', height: popOpen && tab === 'remote' ? 'min(760px, calc(100dvh - 32px))' : undefined, maxHeight: 'min(760px, calc(100dvh - 32px))', display: 'flex', flexDirection: 'column', padding: 16, boxSizing: 'border-box' }, onClick: (e) => e.stopPropagation() },
+        React.createElement('div', { ref: pickerLayerRef, tabIndex: -1, role: 'dialog', 'aria-modal': true, 'aria-labelledby': suggestListId + '-title', 'data-rw-dir-picker': true, className: 'dsh-rw-modal-panel', style: { background: v('--dsw-alias-bg-layer-1', '#18181b'), color: T.label, border: '1px solid ' + T.borderStrong, borderRadius: 12, boxShadow: '0 12px 48px rgba(0,0,0,0.5)', width: 'min(720px, 94vw)', height: tab === 'remote' ? 'min(760px, calc(100dvh - 32px))' : undefined, maxHeight: 'min(760px, calc(100dvh - 32px))', display: 'flex', flexDirection: 'column', padding: 16, boxSizing: 'border-box' }, onClick: (e) => e.stopPropagation() },
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 } },
           React.createElement('div', { id: suggestListId + '-title', style: { fontSize: 15, fontWeight: 650 } }, tr('picker.title')),
           React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, padding: '2px 8px' }, onClick: closePicker, disabled: !!externalBusy }, tr('picker.close')),
@@ -3968,97 +4252,17 @@ window.__ModuleLoader__.load({
               err ? React.createElement(ProjectOpenError, { error: err }) : null,
               localPop ? renderLocalPopup() : null,
             )
-          : (choosingProject && !path)
-            ? React.createElement(RemoteProjectChooser, {
-                machines, busy, registryLoading,
-                onMachine: (m, list) => {
-                  if (!m) { setErr(tr('project.failed')); return }
-                  if (list) setMachines(list)
-                  resetPickerFetchState(); killSuggestions()
-                  setMachineId(m.id); setRecent(m.recentWorkspaces || []); setLevels(null); setPath(''); setErr(''); setChoosingProject(false)
-                },
-                onProject: (m, p) => { setMachineId(m.id); setRecent(m.recentWorkspaces || []); setPath(p); setChoosingProject(false); commitPath(p, m.id) },
-              })
-            : React.createElement('div', { 'data-rw-picker-remote': true, style: { display: 'flex', flexDirection: 'column', flex: popOpen ? '1 1 0' : '0 1 auto', gap: 8, minHeight: 0, overflowY: popOpen ? 'hidden' : 'auto' } },
-              React.createElement('button', { type: 'button', className: 'dsh-rw-btn', disabled: busy, style: { ...buttonS, alignSelf: 'flex-start', fontSize: 12 }, onClick: () => { killSuggestions(); resetPickerFetchState(); setPath(''); setChoosingProject(true) } }, '‹ ' + tr('project.back')),
-              React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
-                React.createElement('label', { style: { fontSize: 12, opacity: 0.8, whiteSpace: 'nowrap' } }, tr('picker.remoteMachine')),
-                React.createElement('div', { ref: ddRef, style: { position: 'relative', display: 'inline-block' } },
-                  React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...inputS, textAlign: 'left', cursor: 'pointer', minWidth: 200, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, disabled: busy, onClick: () => setMOpen((x) => !x) },
-                    (machines.find((m) => m.id === machineId) || {}).name || (machineId ? '…' : tr('picker.chooseMachine')),
-                  ),
-                  mOpen
-                    ? React.createElement('div', { style: { position: 'absolute', top: '100%', left: 0, zIndex: 1000, marginTop: 2, minWidth: 300, maxHeight: 260, overflow: 'auto', background: v('--dsw-alias-bg-overlay', '#1f1f23'), color: T.label, border: '1px solid ' + T.border, borderRadius: T.radius, padding: 4 } },
-                        machines.length
-                          ? machines.map((m) => React.createElement('div', { key: m.id, className: 'dsh-rw-list-item', onClick: () => { setMachineId(m.id); setRecent(m.recentWorkspaces || []); setLevels(null); setPath(''); setMOpen(false); resetPickerFetchState(); killSuggestions(); setLoading(false); setErr(''); if (m.id) loadLevels(m.id, '', 0) }, style: { padding: '6px 8px', borderRadius: 4, cursor: 'pointer', color: m.id === machineId ? T.ok : 'inherit' } }, m.name + '  (' + m.username + '@' + m.host + ':' + m.port + ')'))
-                          : React.createElement('div', { style: { padding: 6, opacity: 0.6 } }, tr('picker.noMachines')),
-                      )
-                    : null,
-                ),
-              ),
-              !popOpen && recent.length ? React.createElement('div', { style: { display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' } },
-                React.createElement('span', { style: { fontSize: 11, opacity: 0.6, whiteSpace: 'nowrap' } }, tr('picker.recent')),
-                recent.map((w, i) => React.createElement('button', { type: 'button', className: 'dsh-rw-btn', key: w + i, onClick: () => { setPath(w); setErr(''); continueSuggest(w) }, style: { ...buttonS, padding: '2px 8px', fontSize: 11, fontFamily: 'monospace' } }, w))) : null,
-              React.createElement('div', { ref: suggestRef, style: { position: 'relative', flexShrink: 0 } },
-                React.createElement('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
-                  React.createElement('input', {
-                    className: 'dsh-rw-input',
-                    value: path,
-                    onChange: (e) => onPathChange(e.target.value),
-                    onFocus: () => loadSuggestions(path),
-                    role: 'combobox',
-                    'aria-label': win ? tr('picker.pathPlaceholderWin') : tr('picker.pathPlaceholder'),
-                    'aria-autocomplete': 'list',
-                    'aria-expanded': suggestOpen && !!suggest.length,
-                    'aria-controls': suggestOpen && suggest.length ? suggestListId : undefined,
-                    'aria-activedescendant': suggestOpen && suggest.length ? suggestListId + '-' + activeSuggestion : undefined,
-                    onKeyDown: (e) => {
-                      // Composition Enter belongs to the IME; modified Enter is
-                      // handled once by the modal's workspace shortcut.
-                      if (busy || e.isComposing || e.keyCode === 229 || e.metaKey || e.ctrlKey || e.altKey) return
-                      if (e.key === 'Escape') {
-                        e.preventDefault(); e.stopPropagation()
-                        if (suggestTimer.current) clearTimeout(suggestTimer.current)
-                        if (suggestOpen) killSuggestions()
-                        else dismissLayered()
-                      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                        e.preventDefault()
-                        if (!suggestOpen || !suggest.length) { loadSuggestions(path); return }
-                        setSuggestIndex((activeSuggestion + (e.key === 'ArrowDown' ? 1 : -1) + suggest.length) % suggest.length)
-                      } else if (e.key === 'Enter') {
-                        e.preventDefault(); e.stopPropagation()
-                        if (suggestOpen && suggest.length) selectSuggestion(suggest[activeSuggestion])
-                        else if (path.trim()) commitPath(path)
-                      }
-                    },
-                    placeholder: (machineId ? (win ? tr('picker.pathPlaceholderWin') : tr('picker.pathPlaceholder')) : tr('picker.chooseMachineFirst')),
-                    disabled: !machineId || busy, 'data-modal-autofocus': true, style: { ...inputS, flex: 1, minWidth: 120 },
-                  }),
-                  React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, whiteSpace: 'nowrap' }, onClick: () => { if (!machineId) return; killSuggestions(); if (suggestTimer.current) clearTimeout(suggestTimer.current); const p = path.trim(); loadLevels(machineId, p || '', 0); setPopOpen(true) }, disabled: !machineId || busy }, tr('picker.browse')),
-                  React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, whiteSpace: 'nowrap' }, onClick: pickHome, disabled: !machineId || busy }, tr('picker.home')),
-                ),
-                // Reserve the same space with or without results: suggestions
-                // never move the dialog or sit beneath the workspace action.
-                !popOpen ? React.createElement('div', { className: 'dsh-rw-suggestions', style: { position: 'relative', height: 'min(180px, 25vh)', marginTop: 8, border: '1px solid ' + T.border, borderRadius: 8, background: T.bg } },
-                (suggestOpen && suggest.length)
-                  ? React.createElement('div', { id: suggestListId, role: 'listbox', 'aria-label': tr('picker.pathPlaceholder'), style: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 60, background: v('--dsw-alias-bg-overlay', '#1e1e1e'), color: T.label, borderRadius: 8, maxHeight: 200, overflowY: 'auto' } },
-                      // Issue #52 defect 1, local belt-and-braces: swallow the
-                      // gesture so no ancestor (least of all the backdrop) can
-                      // observe a click that began on a suggestion.
-                      suggest.map((s, i) => React.createElement('div', { key: s + i, id: suggestListId + '-' + i, role: 'option', 'aria-selected': i === activeSuggestion, onMouseEnter: () => setSuggestIndex(i), className: 'dsh-rw-list-item', onMouseDown: (e) => { e.preventDefault(); e.stopPropagation(); selectSuggestion(s) }, style: { padding: '6px 10px', background: i === activeSuggestion ? T.hoverBg : undefined, cursor: 'pointer', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, s)),
-                    )
-                  : React.createElement('div', { style: { padding: '24px 16px', color: T.muted, fontSize: 12, lineHeight: 1.6, textAlign: 'center' } }, tr('picker.suggestionsHint')),
-                ) : null,
-              ),
-              popOpen ? renderDirPopup() : null,
-              err ? React.createElement(ProjectOpenError, { error: err }) : null,
-              // The action stays below the reserved results region, in a
-              // separate opaque layer with a stable hit target.
-              !popOpen ? React.createElement('div', { 'data-rw-picker-commit': true, style: { display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', position: 'relative', zIndex: 70, background: v('--dsw-alias-bg-layer-1', '#18181b') } },
-                React.createElement('span', { title: path, style: { fontSize: 11, opacity: 0.75, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 } }, path ? tr('picker.selected', { path }) : ''),
-                React.createElement('button', { type: 'button', className: 'dsh-rw-btn dsh-rw-primary', style: primaryBtnS, onClick: () => commitPath(path), disabled: busy || !machineId || !path.trim() }, busy ? tr('project.opening') : tr('picker.setRemoteWs')),
-              ) : null,
-            ),
+          : React.createElement(RemoteTreeBrowser, {
+              machines,
+              machineId,
+              busy: busy || registryLoading,
+              tr: tr,
+              loadDir: fetchDirList,
+              resolveHome: resolveHomePath,
+              onMachine: (id) => { setMachineId(id); resetPickerFetchState(); killSuggestions(); setErr("") },
+              onPick: (p) => commitPath(p),
+              onCancel: closePicker,
+            }),
         choosingProject && !path && err ? React.createElement('div', {},
           React.createElement(ProjectOpenError, { error: err }),
           React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: { ...buttonS, marginTop: 6 }, onClick: loadRegistry, disabled: registryLoading }, tr('project.retry'))) : null,
@@ -4066,7 +4270,7 @@ window.__ModuleLoader__.load({
           React.createElement('span', { style: { flex: 1, color: T.muted } }, tr('project.opening')),
           React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: buttonS, onClick: () => { cancelOperation(); setErr(tr('project.cancelled')) } }, tr('project.cancel'))) : null,
         React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: 11, color: T.muted, paddingTop: 8 } },
-          (tab === 'remote' ? tr(popOpen ? 'picker.hintBrowse' : 'picker.hintKeys') : 'Enter · Esc').split(' · ').map((hint) => React.createElement('span', { key: hint, style: { whiteSpace: 'nowrap' } }, hint))),
+          (tab === 'remote' ? tr('picker.hintTree') : 'Enter · Esc').split(' · ').map((hint) => React.createElement('span', { key: hint, style: { whiteSpace: 'nowrap' } }, hint))),
         (tab === 'local') ? React.createElement('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } }, React.createElement('button', { type: 'button', className: 'dsh-rw-btn', style: buttonS, onClick: onCancel }, tr('picker.cancel'))) : null,
         mkdirPrompt ? React.createElement(PromptDialog, {
           title: tr('picker.newDirName', { path: mkdirPrompt.base || '/' }),
