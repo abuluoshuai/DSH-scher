@@ -4072,6 +4072,18 @@
           var state = react.useState({ loaded: false, query: "", hits: [], terms: [], scanned: 0, total: 0, pending: 0, took: 0, busy: false, error: "" });
           var view = state[0];
           var setView = state[1];
+          var inputRef = react.useRef(null);
+
+          /* Opening the search page should put the caret in the box immediately,
+             matching the sidebar button the user just clicked. The timeout lets
+             the panel finish mounting (and does nothing while it is still hidden). */
+          react.useEffect(function () {
+            var timer = window.setTimeout(function () {
+              var node = inputRef.current;
+              if (node !== null && node !== undefined && typeof node.focus === "function") node.focus();
+            }, 0);
+            return function () { window.clearTimeout(timer); };
+          }, []);
 
           var run = function (text, refresh) {
             var query = typeof text === "string" ? text.trim() : "";
@@ -4118,6 +4130,7 @@
           var input = h("input", {
             className: "wsr-search-input",
             type: "search",
+            ref: inputRef,
             placeholder: t("search.placeholder"),
             defaultValue: "",
             onChange: function (event) {

@@ -1316,6 +1316,18 @@ window.__ModuleLoader__.load({
 
         function refreshStatusSheet() {
           ensureStyleNode(STATUS_NODE_ID).textContent = compileStatusSheet();
+          // Publish the same palette as CSS variables so sibling panels (for
+          // example the global-todo list) can paint their own state backgrounds
+          // from the user's session-status colours instead of hardcoded hues.
+          const root = typeof document !== 'undefined' ? document.documentElement : null;
+          if (root !== null && root !== undefined && typeof root.style.setProperty === 'function') {
+            root.style.setProperty('--dcs-status-working', statusColors.working);
+            root.style.setProperty('--dcs-status-completed', statusColors.completed);
+            root.style.setProperty('--dcs-status-attention', statusColors.attention);
+            root.style.setProperty('--dcs-status-error', statusColors.error);
+            root.style.setProperty('--dcs-status-alpha', String(statusAlpha));
+            root.style.setProperty('--dcs-status-speed', String(statusSpeed) + 's');
+          }
         }
 
         /** Resolve the visual state of one session id. */

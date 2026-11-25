@@ -90,6 +90,7 @@ window.__ModuleLoader__.load({
       'action.done': '完成',
       'action.reopen': '标回未完成',
       'action.doing': '标为进行中',
+      'action.pause': '标为未开始',
       'action.archive': '归档',
       'action.unarchive': '取消归档',
       'action.remove': '删除',
@@ -431,6 +432,7 @@ window.__ModuleLoader__.load({
       'action.done': 'Done',
       'action.reopen': 'Reopen',
       'action.doing': 'Start',
+      'action.pause': 'Mark not started',
       'action.archive': 'Archive',
       'action.unarchive': 'Unarchive',
       'action.remove': 'Delete',
@@ -1367,6 +1369,57 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
 .gt-item[data-status="doing"] { border-left: 2px solid var(--dsw-alias-brand-primary); }
 .gt-item[data-overdue="1"] { border-left: 2px solid var(--dsw-alias-state-error-primary); }
 .gt-item[data-status="done"], .gt-item[data-status="cancelled"] { opacity: .72; }
+/* Status at a glance: every state gets its own surface tint, and the state that
+   is actually being worked on borrows the sidebar's shimmering running band.
+   Hues and sweep speed come from color-style's --dcs-status-* variables, so
+   changing the session-status colours/alpha/speed updates the todo list too;
+   mixing against the current layer background keeps the tints on-theme. */
+@keyframes gt-doing-band {
+  0% { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
+}
+.gt-item[data-status="open"] {
+  background-color: color-mix(in srgb,
+    var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 0.35 * 1%),
+    var(--dsw-alias-bg-layer-2));
+}
+.gt-item[data-status="doing"] {
+  background-color: color-mix(in srgb,
+    var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1%),
+    var(--dsw-alias-bg-layer-2));
+  background-image: linear-gradient(105deg,
+    transparent 0%,
+    color-mix(in srgb,
+      var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1.7 * 1%),
+      var(--dsw-alias-bg-layer-2)) 30%,
+    transparent 58%,
+    color-mix(in srgb,
+      var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1.3 * 1%),
+      var(--dsw-alias-bg-layer-2)) 78%,
+    transparent 100%);
+  background-size: 260% 100%;
+  animation: gt-doing-band var(--dcs-status-speed, 3s) linear infinite;
+}
+.gt-item[data-status="doing"] .gt-check {
+  border-color: var(--dcs-status-working, #e6b83f);
+  color: var(--dcs-status-working, #e6b83f);
+}
+.gt-item[data-status="done"] {
+  background-color: color-mix(in srgb,
+    var(--dcs-status-completed, #4ade80) calc(var(--dcs-status-alpha, 26) * 0.9 * 1%),
+    var(--dsw-alias-bg-layer-2));
+}
+.gt-item[data-status="cancelled"] {
+  background-color: color-mix(in srgb,
+    var(--dsw-alias-label-secondary) 7%, var(--dsw-alias-bg-layer-2));
+}
+.gt-item[data-status="archived"] {
+  background-color: color-mix(in srgb,
+    var(--dsw-alias-label-secondary) 4%, var(--dsw-alias-bg-layer-2));
+}
+@media (prefers-reduced-motion: reduce) {
+  .gt-item[data-status="doing"] { animation: none; background-image: none; }
+}
 .gt-item[data-open="1"] { border-color: var(--dsw-alias-brand-primary); }
 .gt-item-head { display: flex; gap: 10px; align-items: flex-start; }
 .gt-check { flex: 0 0 auto; width: 24px; height: 24px; margin-top: 0; border-radius: 999px; cursor: pointer;
@@ -2489,7 +2542,9 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
                 },
                 done
                   ? { key: 'reopen', label: t('action.reopen'), icon: 'check', onSelect: () => onAction('reopen', todo) }
-                  : { key: 'doing', label: t('action.doing'), icon: 'clock', onSelect: () => onAction('doing', todo) },
+                  : todo.status === 'doing'
+                    ? { key: 'pause', label: t('action.pause'), icon: 'clock', onSelect: () => onAction('reopen', todo) }
+                    : { key: 'doing', label: t('action.doing'), icon: 'clock', onSelect: () => onAction('doing', todo) },
                 todo.status === 'archived'
                   ? { key: 'unarchive', label: t('action.unarchive'), icon: 'check', onSelect: () => onAction('unarchive', todo) }
                   : { key: 'archive', label: t('action.archive'), icon: 'doc', onSelect: () => onAction('archive', todo) },

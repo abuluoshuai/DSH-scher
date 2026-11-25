@@ -7,7 +7,7 @@
       "id": "color-style",
       "row": "color-style",
       "package": "dsh-color-style",
-      "version": "0.8.1",
+      "version": "0.8.2",
       "directory": "plugins/dsh-color-style",
       "title": {
         "zh": "配色方案 + 完成时闪烁任务栏",
@@ -23,15 +23,15 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "任务栏闪烁仅 Windows、依赖系统 PowerShell；配色与闪烁可以分别关（闪烁在 config.taskbarFlash 下，enabled: false 即可关闭）。本地修复：异常会话打开后清除红色，历史错误重挂载不会重复标红。",
-        "en": "The taskbar flash is Windows-only and uses the system PowerShell; palettes and the flash switch independently (config.taskbarFlash.enabled). Local fix: opening an error session clears its red tint and a remounted historical error does not re-raise it."
+        "zh": "任务栏闪烁仅 Windows、依赖系统 PowerShell；配色与闪烁可以分别关（闪烁在 config.taskbarFlash 下，enabled: false 即可关闭）。本地修复：异常会话打开后清除红色，历史错误重挂载不会重复标红。 另外把会话状态配色发布成 --dcs-status-* CSS 变量，供待办等面板联动。",
+        "en": "The taskbar flash is Windows-only and uses the system PowerShell; palettes and the flash switch independently (config.taskbarFlash.enabled). Local fix: opening an error session clears its red tint and a remounted historical error does not re-raise it. It also publishes the session-status palette as --dcs-status-* CSS variables so sibling panels can follow it."
       }
     },
     {
       "id": "ws-recency",
       "row": "ws-recency",
       "package": "dsh-ws-recency",
-      "version": "0.29.0",
+      "version": "0.29.1",
       "directory": "plugins/dsh-ws-recency",
       "title": {
         "zh": "工作区最近顺序侧栏",
@@ -47,8 +47,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "会接管左侧工作区会话栏；与 dsh-better-sidebar（右侧栏）互不冲突。",
-        "en": "Owns the left workspace/session column; independent of the right sidebar."
+        "zh": "会接管左侧工作区会话栏；与 dsh-better-sidebar（右侧栏）互不冲突。 历史 Tab 读完整会话日志（含压缩前提问）；搜索页打开时自动聚焦输入框。",
+        "en": "Owns the left workspace/session column; independent of the right sidebar. History reads the full session log (including pre-compaction prompts); opening search focuses the input."
       }
     },
     {
@@ -167,7 +167,7 @@
       "id": "global-todo",
       "row": "global-todo",
       "package": "dsh-global-todo",
-      "version": "0.23.4",
+      "version": "0.23.5",
       "directory": "plugins/dsh-global-todo",
       "title": {
         "zh": "全局待办",
@@ -183,8 +183,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。",
-        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session."
+        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。 待办状态底色跟随 color-style 的会话状态配色（进行中为流光带），进行中时菜单显示「标为未开始」。",
+        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session. Todo surface tints follow color-style session-status colors (in-progress uses the sweep), and the menu offers \"mark not started\" while in progress."
       }
     },
     {
