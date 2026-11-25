@@ -1,0 +1,24 @@
+# dsh-feishu-notify — Feishu completion push (Scher module)
+#
+# Host row: watch every root Session on this machine and push a Feishu card
+# (session name + user prompt + final assistant markdown) through the Feishu
+# bot configured in dsh-im.
+#
+#   - id: feishu-notify
+#     config:
+#       enabled: true
+#       ignoreSubagents: true
+#       botId: ''
+#       receiveIdType: open_id
+#       receiveId: ''
+#       maxChars: 8000
+- insert:
+    - id: feishu-notify
+      name: './lib/index.js'
+      config:
+        enabled: true
+        ignoreSubagents: true
+        botId: ''
+        receiveIdType: open_id
+        receiveId: ''
+        maxChars: 8000

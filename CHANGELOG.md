@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 — 2026-11-25
+
+- **重新收录 `dsh-feishu-notify` 0.2.0（多机同步）**：飞书完成推送作为 Scher 模块加回仓库，
+  供多台个人电脑从 GitHub 同步安装（生产环境外网受限可不装）。
+  - 飞书卡片升级到 **卡片 JSON 2.0 的 `markdown` 组件**：标题、列表、引用、行内代码、表格正常渲染；
+    单组件最多 4 张表，长正文按表格边界自动分块；代码围栏转成引用块；旧客户端自动退回 `lark_md`。
+  - 仓库内只保留通用代码与空配置，**不含任何 bot appId / open_id / secret**；每台机器在 dsh-im
+    配好自己的飞书机器人即可。
+  - modules.json / README / INSTALL / 根 cordis.patch.yml 均补回该模块；Scher 版本 0.9.0。
+
 ## 0.8.6 — 2026-11-25
 
 - **dsh-remote 远程目录选择器重做（本地 UI 定制）**：

@@ -218,6 +218,43 @@
       }
     },
     {
+      "id": "feishu-notify",
+      "row": "feishu-notify",
+      "package": "dsh-feishu-notify",
+      "version": "0.2.0",
+      "directory": "plugins/dsh-feishu-notify",
+      "title": {
+        "zh": "飞书完成推送",
+        "en": "Feishu completion push"
+      },
+      "summary": {
+        "zh": "本机任意根会话完成一轮时，把会话名、用户输入和最终助手正文（markdown）推送到飞书；卡片 2.0 渲染标题、列表与表格。凭据复用 dsh-im 里已配置的飞书机器人。",
+        "en": "On every root Session turn completion on this machine, push the session name, the user prompt and the final assistant markdown to Feishu as a card-2.0 markdown bubble (headings, lists, tables) through the dsh-im Feishu bot."
+      },
+      "sizeMB": 0.02,
+      "defaultSelected": true,
+      "requires": [
+        "im"
+      ],
+      "recommends": [],
+      "external": [
+        {
+          "name": "feishu-bot",
+          "zh": "需要在 dsh-im 里配置并启用一个飞书机器人；没有机器人时会跳过推送。",
+          "en": "A Feishu bot must be configured and activated in dsh-im; without one the push is skipped."
+        },
+        {
+          "name": "feishu-receiver",
+          "zh": "默认推送给机器人 owner 的 open_id；要发到群里请把 receiveIdType/receiveId 配成 chat_id。",
+          "en": "By default it pushes to the bot owner open_id; set receiveIdType/receiveId to a chat_id for a group."
+        }
+      ],
+      "notes": {
+        "zh": "依赖 IM 模块（dsh-im）与其飞书机器人；不装 IM 时静默跳过。卡片 2.0 markdown 渲染表格；单组件最多 4 张表，超出自动分块；旧客户端自动退回 lark_md。推送串行排队，正文超 8000 字截断。",
+        "en": "Depends on the dsh-im module and its Feishu bot; without IM it silently skips. Card-2.0 markdown renders tables; a component holds at most 4 tables, extra tables are split into more components; old clients fall back to lark_md. Pushes are queued serially; bodies over 8000 chars are truncated."
+      }
+    },
+    {
       "id": "comfyui",
       "row": "comfyui-workspace",
       "package": "dsh-comfyui-workspace",

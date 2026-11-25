@@ -13,7 +13,7 @@
 # 行 id 与各插件单独发布时保持一致，profile 的 cordis.patch.yml 仍可按这些 id
 # 覆盖 config（config 整体替换、不深合并）：
 #   color-style / global-todo / dsh-offwork-countdown / better-sidebar /
-#   ws-recency / dsh-remote / system-monitor / xmanrui-dsh-im / comfyui-workspace
+#   ws-recency / dsh-remote / system-monitor / xmanrui-dsh-im / feishu-notify / comfyui-workspace
 #
 # 行顺序沿用整合前 profile 里的 bundle 顺序：better-sidebar 在 dsh-remote 之前，
 # 后者启动时按服务发现挂接右侧栏标签页。
@@ -92,6 +92,19 @@
     # Discord / Matrix 接入 DSH。配置、凭据与会话绑定仍在 $DSH_HOME/im。
     - id: xmanrui-dsh-im
       name: './plugins/dsh-im/lib/index.js'
+
+    # ── 飞书完成推送（dsh-feishu-notify 0.2.0）──────────────────────────────
+    # 监听本机所有根会话的回合完成，读取会话日志后用 dsh-im 里配置的飞书机器人
+    # 推送：会话名 + 用户输入 + 本轮最终助手正文（飞书卡片 2.0 markdown）。
+    - id: feishu-notify
+      name: './plugins/dsh-feishu-notify/lib/index.js'
+      config:
+        enabled: true
+        ignoreSubagents: true
+        botId: ''
+        receiveIdType: open_id
+        receiveId: ''
+        maxChars: 8000
 
     # ── ComfyUI 简易工作台（dsh-comfyui-workspace 0.7.0）───────────────────
     # config 与插件自带 cordis.patch.yml 的默认值一致；面板 Settings 里保存的

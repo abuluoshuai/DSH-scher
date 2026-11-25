@@ -15,7 +15,7 @@
 
 # 这是什么
 
-把 9 个日常插件收进同一个项目、同一个 bundle：在 DeepSeek Harness 里安装一次，Plugins 页只多出一个 **Scher** 条目，它下面挂着 9 个插件行，行为与分别安装这些插件时一致；从 GitHub 自主安装时按 [modules.json](modules.json) 逐个询问用户要哪些模块。
+把 10 个日常插件收进同一个项目、同一个 bundle：在 DeepSeek Harness 里安装一次，Plugins 页只多出一个 **Scher** 条目，它下面挂着 10 个插件行，行为与分别安装这些插件时一致；从 GitHub 自主安装时按 [modules.json](modules.json) 逐个询问用户要哪些模块。
 
 **所有插件代码都是直接落盘的**——`plugins/` 里放的就是整合前正在运行的那一份（含本地定制），
 不通过 git clone / submodule 跟随上游。原因很简单：其中若干包（`dsh-ws-recency`、
@@ -27,7 +27,7 @@
 
 - `plugins/` 下每个插件都是完整、独立的包，原来的 `package.json`、`exports`、
   `dsh.client`、`locale`、`icon` 原样保留；
-- 根目录的 `cordis.patch.yml` 用相对路径行（`./plugins/<包名>/<入口>.js`）把 9 个 Host 行
+- 根目录的 `cordis.patch.yml` 用相对路径行（`./plugins/<包名>/<入口>.js`）把 10 个 Host 行
   插进 Loader；
 - Client 半边按「最近的 `package.json`」认定身份，所以每个插件继续用**自己原来的包名**
   注册客户端模块——槽位、locale、图标、`/plugins/<包名>/…` 资源路由都与单独安装时一样；
@@ -47,6 +47,7 @@
 | `dsh-system-monitor` | 0.1.0 | 自研（本仓库） | dock 里的 CPU／内存／显卡／显存进度条；指标在 DSH Host 进程采集，因此本地与远程工作区显示的都是会话真正所在的主机；支持 Windows/Linux/macOS 与 NVIDIA/AMD/Apple 显卡 |
 | `dsh-global-todo` | 0.23.4 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、多机同步；**本地改动**：注册进 better-sidebar 的 tab，「交给」默认当前会话，添加待办不绑定工作区/会话 |
 | `@xmanrui/dsh-im` | 5.10.0 | [xmanrui/dsh-im](https://github.com/xmanrui/dsh-im) | IM 机器人：微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH |
+| `dsh-feishu-notify` | 0.2.0 | 自研（本仓库） | 本机任意根会话完成一轮时，用 dsh-im 的飞书机器人推送会话名 + 用户输入 + 最终 markdown；**飞书卡片 2.0 markdown** 渲染标题/列表/表格，单组件最多 4 张表自动分块，旧客户端退回 lark_md |
 | `dsh-comfyui-workspace` | 0.7.0 | 自研（本仓库） | ComfyUI 简易工作台：导入工作流、卡片式调参、跑图/跑视频、归档每次参数与种子 |
 
 # 安装
@@ -55,7 +56,7 @@
 
 1. 打开 **Plugins** 页 → **Add plugin**，选择本目录 `DSH-scher`；
    或者让 Agent 用 `plugin_manager` `install_bundle` 指向本目录。
-2. 安装完成后，Plugins 页出现 **Scher** 组合包，展开可见 9 个插件行。
+2. 安装完成后，Plugins 页出现 **Scher** 组合包，展开可见 10 个插件行。
 3. 如果之前分别装过这些插件，请把原来那些组合包**停用**，避免同一个插件挂两份
    （客户端模块 id 会撞车）。
 
@@ -66,7 +67,7 @@
 > [INSTALL.md](INSTALL.md)。
 
 1. **先只落依赖、不挂载**：`plugin_manager` 的 `install_bundle`，`target` 指向本仓库（本地目录
-   或 GitHub 地址），`enabled: false`。这样不会先把 9 个模块全挂上再拆。
+   或 GitHub 地址），`enabled: false`。这样不会先把 10 个模块全挂上再拆。
 2. **读模块目录**：[modules.json](modules.json)，或运行
    `node scripts/select-modules.mjs list`（`--json` 供 Agent 解析）。把模块清单**逐条**问
    用户「这个需要吗？」——一次只问一个，附一句话说明和体积。
@@ -91,6 +92,7 @@
 | `system-monitor` | 推荐同时装 `remote` | 想监控**远程工作区所在主机**的资源，需要 remote 提供远程会话；只装本模块只看本机 |
 | `color-style` | 仅 Windows 的能力 | 配色全平台可用；其中的任务栏闪烁只在 Windows、依赖系统 PowerShell，可在 `taskbarFlash.enabled` 单独关闭 |
 | `im` | 外部前提 | 各平台自己的机器人凭据（token／应用 ID 与密钥／扫码）与网络；体积最大（约 22 MB 代码 + 40 MB 依赖） |
+| `feishu-notify` | 依赖 `im` + 飞书机器人 | 复用 dsh-im 里已配置的飞书机器人；没有 IM 或没配机器人时跳过推送；多台个人电脑各自配置机器人即可 |
 | `comfyui` | 外部前提 | 一个可访问的 ComfyUI 服务（默认 `http://127.0.0.1:8188`）；没有它面板能开、任务跑不了 |
 
 ## 模块选择（装好之后也能改）
@@ -146,7 +148,8 @@ DSH-scher/
     ├── dsh-system-monitor/
     ├── dsh-global-todo/
     ├── dsh-im/                     # 包名仍是 @xmanrui/dsh-im
-    └── dsh-comfyui-workspace/
+    ├── dsh-comfyui-workspace/
+    └── dsh-feishu-notify/
 ```
 
 每个 `plugins/<name>/` 内保持上游包结构：入口模块、`client` 产物、`locale/`、图标、
