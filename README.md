@@ -45,7 +45,7 @@
 | `dsh-remote` | 1.2.1 | [flymysql/dsh-remote](https://github.com/flymysql/dsh-remote) | SSH 远程工作区、远程终端、远程文件浏览与搜索；**本地同步到上游 1.2.1**（入口重组为 boot → main，新增本地工作区 / 连接摘要模块），并保留注册进右侧栏、X11 转发、macOS 主机支持、远程文件树 VS Code 风格图标；**本地 UI 定制**：远程目录选择器改为服务器列表 + 可展开目录树（上一级 / 主目录 / 刷新），本机按钮为「浏览文件夹」 |
 | `dsh-offwork-countdown` | 0.2.4 | [ZydFirst/dsh-offwork-countdown](https://github.com/ZydFirst/dsh-offwork-countdown) | 输入框下方的下班倒计时胶囊，到点转为加班计时；**本地定制**：设置存 Host 侧不再被重启重置，到点先闪任务栏、回到前台再放烟花；支持 9 种样式（经典爆裂/心形/五角星/圆环/双环/柳枝/螺旋/笑脸/随机混合）与范围/密度/时长，设置里可预览 |
 | `dsh-system-monitor` | 0.1.0 | 自研（本仓库） | dock 里的 CPU／内存／显卡／显存进度条；指标在 DSH Host 进程采集，因此本地与远程工作区显示的都是会话真正所在的主机；支持 Windows/Linux/macOS 与 NVIDIA/AMD/Apple 显卡 |
-| `dsh-global-todo` | 0.23.6 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、多机同步；**本地改动**：注册进 better-sidebar 的 tab，「交给」默认当前会话，添加待办不绑定工作区/会话；待办状态底色跟随 color-style 会话状态配色（进行中为流光带），进行中菜单改为「标为未开始」，整行右键弹出同一菜单 |
+| `dsh-global-todo` | 0.24.0 | [LUgABeEEE/dsh-global-todo](https://github.com/LUgABeEEE/dsh-global-todo) | 跨会话全局待办：Agent 报「完成」只进待确认，人点头才算数；支持步骤计划、文档与地址、多机同步；**本地改动**：注册进 better-sidebar 的 tab，「交给」默认当前会话，添加待办不绑定工作区/会话；待办状态底色跟随 color-style 会话状态配色（进行中为流光带），整行右键弹出同一菜单；**树形子事项**：子事项是带 `parentId` 的完整待办，父状态自动派生，折叠按钮显示递归完成进度环；支持添加子事项、自动拆分子任务、设置为完成；子事项派发强制落在顶层父待办绑定的会话（未绑定时用当前会话并绑定） |
 | `@xmanrui/dsh-im` | 5.10.0 | [xmanrui/dsh-im](https://github.com/xmanrui/dsh-im) | IM 机器人：微信／飞书／企业微信／钉钉／QQ／Telegram／WhatsApp／Slack／Discord／Matrix 接入 DSH |
 | `dsh-feishu-notify` | 0.2.0 | 自研（本仓库） | 本机任意根会话完成一轮时，用 dsh-im 的飞书机器人推送会话名 + 用户输入 + 最终 markdown；**飞书卡片 2.0 markdown** 渲染标题/列表/表格，单组件最多 4 张表自动分块，旧客户端退回 lark_md |
 | `dsh-comfyui-workspace` | 0.7.0 | 自研（本仓库） | ComfyUI 简易工作台：导入工作流、卡片式调参、跑图/跑视频、归档每次参数与种子 |

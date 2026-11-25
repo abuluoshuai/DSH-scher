@@ -167,15 +167,15 @@
       "id": "global-todo",
       "row": "global-todo",
       "package": "dsh-global-todo",
-      "version": "0.23.6",
+      "version": "0.24.0",
       "directory": "plugins/dsh-global-todo",
       "title": {
         "zh": "全局待办",
         "en": "Global todos"
       },
       "summary": {
-        "zh": "跨会话待办清单（可注册到侧栏）：Agent 报「完成」只进待确认、人点头才算数；支持步骤计划、文档与地址、交给会话继续做、多机同步。",
-        "en": "Cross-session todo list (sidebar panel available): an agent's done only reaches Needs review until a person confirms; steps, links, hand-off to a conversation, multi-machine sync."
+        "zh": "跨会话待办清单（可注册到侧栏）：Agent 报「完成」只进待确认、人点头才算数；支持树形子事项（父指针、父状态派生、进度环）、自动/手动拆分、整体或单独派发、步骤计划、文档与地址、多机同步。",
+        "en": "Cross-session todo list (sidebar panel available): an agent's done only reaches Needs review until a person confirms. Tree subtasks (parent pointer, derived parent status, progress ring), automatic/manual splitting, whole-tree or single-item hand-off, steps, links and multi-machine sync."
       },
       "sizeMB": 0.81,
       "defaultSelected": true,
@@ -183,8 +183,8 @@
       "recommends": [],
       "external": [],
       "notes": {
-        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。 待办状态底色跟随 color-style 的会话状态配色（进行中为流光带），进行中时菜单显示「标为未开始」。 整行右键可弹出与右侧 ⋮ 相同的操作菜单。",
-        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session. Todo surface tints follow color-style session-status colors (in-progress uses the sweep), and the menu offers \"mark not started\" while in progress. Right-clicking anywhere on a todo row opens the same actions as the kebab menu."
+        "zh": "无依赖。清单默认存 $DSH_HOME/global-todo/todos.json。本地改动：展开会话待办不再因 ctx 未定义崩溃；「交给」默认当前会话（也可注册进 better-sidebar 的 tab），添加待办不绑定工作区/会话。 待办状态底色跟随 color-style 的会话状态配色（进行中为流光带），进行中时菜单显示「标为未开始」。 整行右键可弹出与右侧 ⋮ 相同的操作菜单。 子事项是完整待办（parentId）；父状态按子事项自动派生（全未开始=未开始、全完成=已完成、其余=进行中）；折叠按钮外圈显示递归完成进度；菜单支持添加子事项、自动拆分、设置为完成；子事项派发强制使用顶层父待办绑定的会话，未绑定时使用当前会话并绑定顶层；筛选「未完成」时已完成子项仍保留在树中。",
+        "en": "No dependencies; the list lives in $DSH_HOME/global-todo/todos.json by default. Local changes: the detail/jump button no longer crashes; hand-off defaults to the current conversation (also registered as a better-sidebar tab); adding a todo binds neither a workspace nor a session. Todo surface tints follow color-style session-status colors (in-progress uses the sweep), and the menu offers \"mark not started\" while in progress. Right-clicking anywhere on a todo row opens the same actions as the kebab menu. A subtask is a full todo with a parentId; the parent status is derived from its children (all open = open, all done = done, otherwise doing). The fold button carries a recursive progress ring; menus add subtasks, auto-split, and mark the whole tree complete. A child hand-off always uses the top-level parent's bound session (or the current one, binding the root on first use), and completed children stay in the tree under the active filter."
       }
     },
     {

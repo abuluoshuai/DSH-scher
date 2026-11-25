@@ -39,6 +39,7 @@ import {
   parseDueText,
   pushActivity,
   recordDispatch as recordDispatchOn,
+  recomputeParentStatuses,
   removeLink as removeLinkFrom,
   reviewTodo,
   setStatus as setStatusOn,
@@ -112,6 +113,7 @@ export const DAILY_RECORD_LIMIT = 10
 export function boardSize(todos) {
   let size = 0
   for (const todo of todos) {
+    if (todo.parentId !== '') continue
     if (todo.status !== 'open' && todo.status !== 'doing') continue
     if (isInbox(todo) || isSomeday(todo)) continue
     size += 1
@@ -184,6 +186,20 @@ export function createService(options) {
   // is why every recording call below is guarded.
   const metrics = options.metrics
   const now = options.now ?? (() => Date.now())
+  /**
+   * A write that also keeps every parent's derived status in step. Children are
+   * ordinary todos with a parentId, so any mutation can change an ancestor's
+   * status; persisting it here means every reader sees one consistent tree.
+   */
+  const storeUpdate = (mutator) =>
+    options.store.update((doc) => {
+      const outcome = mutator(doc)
+      const changed = recomputeParentStatuses(doc.todos, { now: now(), by: 'human', silent: true })
+      if (changed.length > 0 && (outcome === undefined || outcome.next === undefined)) {
+        return { next: doc.todos, result: outcome?.result }
+      }
+      return outcome
+    })
   const requireExistingFiles = config.requireExistingFiles !== false
   const activityLimit = config.activityLimit ?? LIMITS.activity
 
@@ -238,6 +254,11 @@ export function createService(options) {
     const todo = doc.todos.find((candidate) => candidate.id === id.trim())
     if (todo === undefined) throw new TodoError('not-found', `没有这条待办：${id}`)
     return todo
+  }
+
+  /** Does this record have direct children? Children are full todos with a parentId. */
+  function hasChildren(doc, id) {
+    return doc.todos.some((candidate) => candidate.parentId === id)
   }
 
   /**
@@ -438,11 +459,50 @@ function dueBound(text) {
   async function list(query = {}) {
     const todos = await store.all()
     const selected = select(todos, query)
+    // A tree is shown as a whole: a completed child must stay under its active
+    // parent, otherwise the parent's progress ring and count lose the finished
+    // work. Select the matching roots, then attach all their descendants.
+    const roots = []
+    const seenRoots = new Set()
+    const byId = new Map(todos.map((todo) => [todo.id, todo]))
+    const rootOf = (todo) => {
+      let cursor = todo
+      let guard = 0
+      while (cursor !== null && cursor !== undefined && cursor.parentId !== '' && guard < 40) {
+        const parent = byId.get(cursor.parentId)
+        if (parent === undefined) break
+        cursor = parent
+        guard += 1
+      }
+      return cursor ?? todo
+    }
+    for (const todo of selected.todos) {
+      const root = rootOf(todo)
+      if (root === undefined || root === null || seenRoots.has(root.id)) continue
+      seenRoots.add(root.id)
+      roots.push(root)
+    }
+    const childrenOf = new Map()
+    for (const todo of todos) {
+      if (typeof todo.parentId !== 'string' || todo.parentId === '') continue
+      const bucket = childrenOf.get(todo.parentId)
+      if (bucket === undefined) childrenOf.set(todo.parentId, [todo])
+      else bucket.push(todo)
+    }
+    for (const bucket of childrenOf.values()) {
+      bucket.sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.createdAt - right.createdAt)
+    }
+    const tree = []
+    const walk = (todo) => {
+      tree.push(todo)
+      for (const child of childrenOf.get(todo.id) ?? []) walk(child)
+    }
+    for (const root of roots) walk(root)
     return {
-      todos: selected.todos,
-      counts: counts(todos, now()),
-      matched: selected.matched,
-      truncated: selected.matched > selected.todos.length,
+      todos: tree,
+      counts: counts(todos.filter((todo) => todo.parentId === ''), now()),
+      matched: roots.length,
+      truncated: false,
     }
   }
 
@@ -456,30 +516,145 @@ function dueBound(text) {
   }
 
   /**
+   * Walk parentId to the top-level todo. A child does not own a conversation:
+   * every hand-off in the tree resolves against this root's binding.
+   *
+   * @param {string} id
+   * @returns {Promise<object>}
+   */
+  async function rootOf(id) {
+    const todos = await store.all()
+    let todo = requireTodo({ todos }, id)
+    let guard = 0
+    while (todo.parentId !== '' && guard < 40) {
+      const parent = todos.find((candidate) => candidate.id === todo.parentId)
+      if (parent === undefined) break
+      todo = parent
+      guard += 1
+    }
+    return todo
+  }
+
+  /**
+   * Bind an unbound tree to one session/workspace. Descendants inherit the
+   * workspace directory too, so every child is handed off in the same place.
+   *
+   * @param {string} rootId
+   * @param {{ sessionId: string, dir?: string }} binding
+   * @param {{ by?: 'human' | 'agent' }} [context]
+   * @returns {Promise<object>} the root after binding
+   */
+  async function bindSession(rootId, binding, context = {}) {
+    return storeUpdate((doc) => {
+      let root = requireTodo(doc, rootId)
+      let guard = 0
+      while (root.parentId !== '' && guard < 40) {
+        const parent = doc.todos.find((candidate) => candidate.id === root.parentId)
+        if (parent === undefined) break
+        root = parent
+        guard += 1
+      }
+      const sessionId = typeof binding?.sessionId === 'string' ? binding.sessionId.trim() : ''
+      const dir = typeof binding?.dir === 'string' ? binding.dir.trim() : ''
+      let changed = false
+      if (sessionId !== '' && root.sessionId !== sessionId) {
+        root.sessionId = sessionId
+        changed = true
+      }
+      if (dir !== '' && root.originDir !== dir) {
+        root.originDir = dir
+        changed = true
+        for (const todo of doc.todos) {
+          if (todo.parentId !== '' && todo.originDir !== dir) {
+            // Descendants share the root's workspace, never their own.
+            todo.originDir = dir
+          }
+        }
+      }
+      if (changed) {
+        const at = now()
+        root.updatedAt = at
+        root.updatedBy = normalizeActor(context.by ?? 'human')
+        pushActivity(
+          root,
+          {
+            kind: 'session-bound',
+            by: context.by ?? 'human',
+            at,
+            summary: `绑定会话 ${sessionId}${dir === '' ? '' : ` · ${dir}`}`,
+          },
+          activityLimit,
+        )
+      }
+      return changed ? { next: doc.todos, result: root } : { result: root }
+    })
+  }
+
+  /**
    * @param {object} input
    * @param {{ by?: 'human' | 'agent', origin?: { dir?: string, sessionId?: string } }} [context]
    * @returns {Promise<object>} the created todo
    */
   async function create(input, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const by = normalizeActor(context.by)
       // The door that wrote this record. The panel's own form is a person; everything else is
       // an agent, and the two agent doors are the ones that need a gate.
       const source = CAPTURE_SOURCES.includes(context.source) ? context.source : by === 'human' ? 'human' : 'tool'
-      const todo = createTodo(input, {
-        ...modelOptions(by),
-        // A person's entry keeps the level they typed; an agent's is derived from the deadline
-        // (`priorityForDue`) and its own choice is kept as `suggestedPriority`.
-        prioritySource: by === 'human' ? 'human' : 'rule',
-        captureSource: source,
-        usedIds: doc.todos.map((candidate) => candidate.id),
-        ...(context.origin === undefined ? {} : { origin: context.origin }),
-      })
-        // The gate: an agent-written record with no deadline, one that arrives after the day's
-        // allowance, or one that arrives when the board is already full waits in the inbox
-        // instead of becoming the list. It is not dropped, and the reason is on the record,
-        // because "why is this here" is the question the inbox must answer.
-        if ((source === 'tool' || source === 'capture') && todo.status === 'open') {
+      const raw = input !== null && typeof input === 'object' ? input : {}
+      const parentId = typeof raw.parentId === 'string' ? raw.parentId.trim() : ''
+      let parent = null
+      if (parentId !== '') {
+        parent = doc.todos.find((candidate) => candidate.id === parentId)
+        if (parent === undefined) throw new TodoError('not-found', `找不到父待办 ${parentId}`)
+        if (parent.status === 'archived') throw new TodoError('invalid-status', '父待办已归档，不能再添加子事项')
+        // A cycle is impossible for a fresh record, but a hand-edited/store-merged
+        // file can contain one: bound the walk so it cannot hang a write.
+        let cursor = parent
+        let depth = 0
+        while (cursor !== null && cursor.parentId !== '' && depth < 20) {
+          const next = doc.todos.find((candidate) => candidate.id === cursor.parentId)
+          if (next === undefined) break
+          cursor = next
+          depth += 1
+        }
+        if (depth >= 20) throw new TodoError('invalid-body', '子事项层级太深（最多 20 层）')
+      }
+      const inheritedOrigin = parent === null
+        ? context.origin
+        : { dir: parent.originDir ?? '', sessionId: parent.originSessionId ?? '' }
+      const todo = createTodo(
+        {
+          ...raw,
+          ...(parent === null ? {} : { parentId: parent.id }),
+          ...(parent === null ? {} : { priority: raw.priority ?? parent.priority }),
+        },
+        {
+          ...modelOptions(by),
+          // A person's entry keeps the level they typed; an agent's is derived from the deadline
+          // (`priorityForDue`) and its own choice is kept as `suggestedPriority`.
+          prioritySource: parent === null && by !== 'human' ? 'rule' : 'human',
+          captureSource: source,
+          usedIds: doc.todos.map((candidate) => candidate.id),
+          ...(inheritedOrigin === undefined ? {} : { origin: inheritedOrigin }),
+        },
+      )
+      if (parent !== null) {
+        // A subtask is born on the board, not in the inbox: it is part of work the
+        // owner already admitted. Its sibling order defaults to the end.
+        const siblings = doc.todos.filter((candidate) => candidate.parentId === parent.id)
+        todo.order = Number.isInteger(raw.order) && raw.order >= 0
+          ? raw.order
+          : siblings.reduce((max, candidate) => Math.max(max, candidate.order ?? 0), -1) + 1
+        todo.tags = normalizeTags(todo.tags.filter((tag) => tag.toLowerCase() !== INBOX_TAG))
+        todo.inboxReason = ''
+        todo.priority = parent.priority
+        todo.prioritySource = 'human'
+      }
+      // The gate: an agent-written record with no deadline, one that arrives after the day's
+      // allowance, or one that arrives when the board is already full waits in the inbox
+      // instead of becoming the list. A subtask is exempt: its parent already owns the slot.
+      if (parent === null && (source === 'tool' || source === 'capture') && todo.status === 'open') {
           const at = now()
           // The door that was wide open: writing had no ceiling at all. A day's worth of records
           // is what a person can still read; past it, the right answer is to work through what
@@ -590,7 +765,7 @@ function dueBound(text) {
    */
   async function migrate(options = {}) {
     const at = options.now ?? now()
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       let inboxed = 0
       let releveled = 0
       for (const todo of doc.todos) {
@@ -634,10 +809,13 @@ function dueBound(text) {
    * @returns {Promise<{ todo: object, changed: string[] }>}
    */
   async function update(id, patch, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
       const by = normalizeActor(context.by)
       const wasInbox = inInbox(todo)
+      if (patch?.status === 'archived' && todo.parentId !== '') {
+        throw new TodoError('invalid-status', '子事项不能单独归档；归档请操作它的父待办')
+      }
       const changed = applyPatch(todo, patch, {
         ...modelOptions(context.by),
         ...linkOptions(),
@@ -672,6 +850,7 @@ function dueBound(text) {
       if (
         changed.includes('steps') &&
         by === 'agent' &&
+        !hasChildren(doc, todo.id) &&
         todo.status !== 'done' &&
         (todo.status === 'open' || todo.status === 'doing')
       ) {
@@ -690,14 +869,49 @@ function dueBound(text) {
   }
 
   /**
+   * Mark one todo, and every leaf below it, done. This is the menu's
+   * 「设置为完成」: a parent cannot store `done` directly, so the leaves are
+   * completed and the derived parent status follows.
+   *
+   * @param {string} id
+   * @param {{ by?: 'human' | 'agent' }} [context]
+   * @returns {Promise<object>} the todo after the derived status settles
+   */
+  async function completeTree(id, context = {}) {
+    return storeUpdate((doc) => {
+      const root = requireTodo(doc, id)
+      if (root.status === 'archived') throw new TodoError('invalid-status', '已归档的待办不能设置为完成')
+      const by = normalizeActor(context.by ?? 'human')
+      let changed = 0
+      const visit = (todo, depth) => {
+        if (depth > 40) return
+        const children = doc.todos.filter((candidate) => candidate.parentId === todo.id)
+        if (children.length === 0) {
+          if (todo.status !== 'done') {
+            setStatusOn(todo, 'done', { ...modelOptions(by), reason: '设置为完成' })
+            changed += 1
+          }
+          return
+        }
+        for (const child of children) visit(child, depth + 1)
+      }
+      visit(root, 0)
+      return changed > 0 ? { next: doc.todos, result: root } : { result: root }
+    })
+  }
+
+  /**
    * @param {string} id
    * @param {string} status
    * @param {{ by?: 'human' | 'agent' }} [context]
    * @returns {Promise<object>}
    */
   async function setStatus(id, status, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
+      if (status === 'archived' && todo.parentId !== '') {
+        throw new TodoError('invalid-status', '子事项不能单独归档；归档请操作它的父待办')
+      }
       const changed = setStatusOn(todo, status, modelOptions(context.by))
       return changed ? { next: doc.todos, result: todo } : { result: todo }
     })
@@ -717,7 +931,7 @@ function dueBound(text) {
    * @returns {Promise<object>} the todo after the decision
    */
   async function review(id, decision, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
       if (todo.review?.pending !== true) {
         throw new TodoError('invalid-status', '这条待办没有等你确认的完成标记')
@@ -744,8 +958,11 @@ function dueBound(text) {
    * @returns {Promise<object>} the reopened todo
    */
   async function reopen(id, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
+      if (hasChildren(doc, todo.id)) {
+        throw new TodoError('invalid-status', '这条待办有子事项，状态由子事项自动决定；请更新子事项状态')
+      }
       if (todo.status !== 'done' && todo.status !== 'cancelled') {
         throw new TodoError(
           'invalid-status',
@@ -766,8 +983,14 @@ function dueBound(text) {
    * @returns {Promise<{ todo: object, changed: boolean }>}
    */
   async function complete(id, evidence = {}, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
+      if (hasChildren(doc, todo.id)) {
+        throw new TodoError(
+          'invalid-status',
+          '这条待办有子事项：父待办在所有子事项完成后会自动完成，不能直接声明完成。请更新子事项状态。',
+        )
+      }
       const changed = completeTodo(todo, evidence, { ...modelOptions(context.by ?? 'agent'), ...linkOptions() })
       return { next: doc.todos, result: { todo, changed } }
     })
@@ -782,7 +1005,7 @@ function dueBound(text) {
    * @returns {Promise<{ todo: object, note: object }>}
    */
   async function note(id, text, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
       const created = addNoteTo(todo, text, modelOptions(context.by ?? 'agent'))
       metrics?.recordList?.('noted')
@@ -848,7 +1071,7 @@ function dueBound(text) {
    * @returns {Promise<object>}
    */
   async function restore(record, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = normalizeStored(record, { activityLimit })
       if (todo === null) throw new TodoError('invalid-body', '这条记录无法还原：缺少 id 或标题')
       if (doc.todos.some((candidate) => candidate.id === todo.id)) {
@@ -872,8 +1095,11 @@ function dueBound(text) {
    * @returns {Promise<object>} the removed todo
    */
   async function remove(id, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
+      if (hasChildren(doc, todo.id)) {
+        throw new TodoError('invalid-body', '这条待办还有子事项：先删除子事项，再删除父待办')
+      }
       doc.todos = doc.todos.filter((candidate) => candidate.id !== todo.id)
       // The mark is what stops the next copy from another machine putting the record back;
       // a deletion that leaves no trace is a deletion the other side never learns about.
@@ -891,7 +1117,7 @@ function dueBound(text) {
    * @returns {Promise<{ todo: object, added: boolean, link: object }>}
    */
   async function addLink(id, link, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
       const outcome = addLinkTo(todo, link, {
         ...modelOptions(context.by),
@@ -910,7 +1136,7 @@ function dueBound(text) {
    * @returns {Promise<{ todo: object, removed: object | null }>}
    */
   async function removeLink(id, ref, context = {}) {
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const todo = requireTodo(doc, id)
       const removed = removeLinkFrom(todo, ref ?? {}, modelOptions(context.by))
       return removed === null ? { result: { todo, removed: null } } : { next: doc.todos, result: { todo, removed } }
@@ -927,7 +1153,7 @@ function dueBound(text) {
    */
   async function recordDispatch(id, info) {
     try {
-      return await store.update((doc) => {
+      return await storeUpdate((doc) => {
         const todo = requireTodo(doc, id)
         recordDispatchOn(todo, info, { now: now(), activityLimit })
         return { next: doc.todos, result: todo }
@@ -939,39 +1165,195 @@ function dueBound(text) {
   }
 
   /**
-   * @param {object} todo
-   * @returns {string} the prompt a dispatched session receives
+   * Reorder the direct children of one parent. The order field is the durable
+   * sibling order; a child's array position is never stored.
+   *
+   * @param {string} parentId
+   * @param {string[]} order
+   * @param {{ by?: 'human' | 'agent' }} [context]
+   * @returns {Promise<{ todo: object, children: object[] }>}
    */
-  function dispatchPrompt(todo) {
-    const lines = ['【全局待办 · 交给 Agent】', `待办：${todo.title}`]
-    if (todo.description !== '') {
-      lines.push('', '描述：', todo.description)
-    }
-    // The plan, if there is one: a numbered list is what makes a hand-off concrete, and
-    // the ticks say which parts are already behind us.
-    const steps = Array.isArray(todo.steps) ? todo.steps : []
-    if (steps.length > 0) {
-      lines.push('', `步骤（共 ${steps.length} 步）：`)
-      steps.forEach((step, index) => {
-        lines.push(`${index + 1}. ${step.done === true ? '[已完成] ' : ''}${step.text}`)
+  async function reorderSiblings(parentId, order, context = {}) {
+    return storeUpdate((doc) => {
+      const parent = requireTodo(doc, parentId)
+      const children = doc.todos.filter((candidate) => candidate.parentId === parent.id)
+      if (!Array.isArray(order) || order.length !== children.length) {
+        throw new TodoError('invalid-children', '排序需要给出全部子事项的 id')
+      }
+      const byId = new Map(children.map((child) => [child.id, child]))
+      const seen = new Set()
+      for (const id of order) {
+        if (!byId.has(id) || seen.has(id)) throw new TodoError('invalid-children', '排序里的子事项 id 不合法')
+        seen.add(id)
+      }
+      const at = now()
+      order.forEach((id, index) => {
+        const child = byId.get(id)
+        if (child.order !== index) {
+          child.order = index
+          child.updatedAt = at
+        }
       })
+      parent.updatedAt = at
+      pushActivity(parent, { kind: 'children-reordered', by: context.by ?? 'human', at, summary: '调整了子事项顺序' }, activityLimit)
+      return { next: doc.todos, result: { todo: parent, children: order.map((id) => byId.get(id)) } }
+    })
+  }
+
+  /**
+   * Create a set of ordered children under one parent in a single write.
+   *
+   * Used by the split tool: the agent hands back the plan as an ordered list,
+   * and the store gets the children at once instead of one racing request each.
+   *
+   * @param {string} parentId
+   * @param {Array<string | { title: string, description?: string, dueAt?: string }>} items
+   * @param {{ by?: 'human' | 'agent' }} [context]
+   * @returns {Promise<{ todo: object, children: object[] }>}
+   */
+  async function split(parentId, items, context = {}) {
+    return storeUpdate((doc) => {
+      const parent = requireTodo(doc, parentId)
+      if (parent.status === 'archived') throw new TodoError('invalid-status', '已归档的待办不能再拆分')
+      const list = Array.isArray(items) ? items : []
+      if (list.length === 0 || list.length > LIMITS.children) {
+        throw new TodoError('invalid-children', `拆分需要 1–${LIMITS.children} 条子事项`)
+      }
+      const at = now()
+      const by = normalizeActor(context.by ?? 'agent')
+      const siblings = doc.todos.filter((candidate) => candidate.parentId === parentId)
+      let nextOrder = siblings.reduce((max, candidate) => Math.max(max, candidate.order ?? 0), -1) + 1
+      let nextSeq = doc.todos.reduce((max, candidate) => Math.max(max, candidate.seq ?? 0), 0) + 1
+      const usedIds = doc.todos.map((candidate) => candidate.id)
+      const children = []
+      for (const item of list) {
+        const raw = typeof item === 'string' ? { title: item } : item
+        if (raw === null || typeof raw !== 'object' || typeof raw.title !== 'string' || raw.title.trim() === '') continue
+        const child = createTodo(
+          { ...raw, parentId, order: nextOrder },
+          {
+            ...modelOptions(by),
+            prioritySource: 'human',
+            captureSource: by === 'agent' ? 'tool' : 'human',
+            usedIds: [...usedIds, ...children.map((entry) => entry.id)],
+            origin: { dir: parent.originDir ?? '', sessionId: parent.originSessionId ?? '' },
+          },
+        )
+        child.seq = nextSeq
+        nextSeq += 1
+        child.order = nextOrder
+        nextOrder += 1
+        child.priority = parent.priority
+        child.prioritySource = 'human'
+        child.tags = normalizeTags(child.tags.filter((tag) => tag.toLowerCase() !== INBOX_TAG))
+        child.inboxReason = ''
+        children.push(child)
+      }
+      if (children.length === 0) throw new TodoError('invalid-children', '拆分没有产生任何子事项')
+      doc.todos.push(...children)
+      parent.updatedAt = at
+      parent.updatedBy = by
+      pushActivity(
+        parent,
+        { kind: 'split', by, at, summary: `拆分为 ${children.length} 个子事项` },
+        activityLimit,
+      )
+      return { next: doc.todos, result: { todo: parent, children } }
+    })
+  }
+
+  /**
+   * Direct children of one todo, in the owner's order.
+   *
+   * @param {object[]} todos
+   * @param {string} parentId
+   * @returns {object[]}
+   */
+  function childrenOf(todos, parentId) {
+    return todos
+      .filter((todo) => todo.parentId === parentId)
+      .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.createdAt - right.createdAt || (left.seq ?? 0) - (right.seq ?? 0))
+  }
+
+  /**
+   * The prompt a dispatched session receives. For an ordinary hand-off it describes
+   * the todo and its full ordered subtree; for a split request it asks the agent to
+   * produce the ordered child list and says which tool creates it.
+   *
+   * @param {string} id
+   * @param {{ purpose?: 'work' | 'split' }} [options]
+   * @returns {Promise<string>}
+   */
+  async function promptFor(id, options = {}) {
+    const todos = await store.all()
+    const todo = requireTodo({ todos }, id)
+    const purpose = options.purpose === 'split' ? 'split' : 'work'
+    const children = childrenOf(todos, todo.id)
+    const statusText = (status) => (status === 'done' ? '已完成' : status === 'doing' ? '进行中' : status === 'archived' ? '已归档' : '未开始')
+    const lines = [purpose === 'split' ? '【全局待办 · 自动拆分子任务】' : '【全局待办 · 交给 Agent】', `待办：${todo.title}`]
+    if (todo.description !== '') lines.push('', '描述：', todo.description)
+
+    if (purpose === 'split') {
+      lines.push(
+        '',
+        '请把这件事拆成**按执行顺序**的子事项，不要现在开始执行。',
+        '只输出拆分结果：用 global_todo_split 工具一次提交，参数：',
+        `  id: "${todo.id}"，items: [{ title: "第一步", description?: "..." }, ...]`,
+        '子事项也是普通待办：它们共享父待办的工作区与工作目录，不需要也不允许单独选择工作区/目录；',
+        '父待办的状态由子事项自动派生（全部未开始=未开始，全部完成=已完成，否则进行中）。',
+        '拆分要具体、可独立执行、顺序清楚；不要超过工具允许的条数，也不要为了凑数硬拆。',
+      )
+      if (todo.links.length > 0) {
+        lines.push('', '相关文档与地址：')
+        for (const link of todo.links) lines.push(`- ${link.kind === 'url' ? '地址' : '文档'}：${formatLink(link)}`)
+      }
+      lines.push('', `父待办 id：${todo.id}。拆完用一句话说明你拆成了几项。`)
+      return lines.join('\n')
+    }
+
+    if (children.length > 0) {
+      lines.push('', '子事项（树形顺序；这是你必须遵守的工作顺序）：')
+      let number = 0
+      const walk = (parentId, depth) => {
+        for (const child of childrenOf(todos, parentId)) {
+          number += 1
+          lines.push(`${'  '.repeat(depth)}${number}. [${statusText(child.status)}] ${child.title}  id=${child.id}`)
+          walk(child.id, depth + 1)
+        }
+      }
+      walk(todo.id, 0)
+      lines.push(
+        '',
+        '按上面的顺序推进。每完成一个子事项，用 global_todo_update（id=该子事项 id，status:"done"）标记；'
+          + '全部子事项完成后父待办会自动完成，不要直接把父待办标成 done。'
+          + '某个子事项做不了，就说明卡在哪里，并保留它的状态。',
+      )
+    } else {
+      // The plan, if there is one: a numbered list is what makes a hand-off concrete.
+      const steps = Array.isArray(todo.steps) ? todo.steps : []
+      if (steps.length > 0) {
+        lines.push('', `步骤（共 ${steps.length} 步）：`)
+        steps.forEach((step, index) => {
+          lines.push(`${index + 1}. ${step.done === true ? '[已完成] ' : ''}${step.text}`)
+        })
+      }
     }
     if (todo.links.length > 0) {
       lines.push('', '相关文档与地址：')
-      for (const link of todo.links) {
-        lines.push(`- ${link.kind === 'url' ? '地址' : '文档'}：${formatLink(link)}`)
-      }
+      for (const link of todo.links) lines.push(`- ${link.kind === 'url' ? '地址' : '文档'}：${formatLink(link)}`)
     }
     if (todo.dueAt !== null) lines.push('', `截止：${todo.dueAt}`)
     if (todo.tags.length > 0) lines.push(`标签：${todo.tags.join(', ')}`)
     lines.push('', `这条待办加入于 ${new Date(todo.createdAt).toISOString()}，id 是 ${todo.id}。`)
     lines.push('请现在开始处理它。')
-    lines.push(
-      `做完后调用 global_todo_done 工具，带上 id=${todo.id}、`
-        + '`summary`（一句话：做了什么、结论是什么）和 `artifacts`（这次产出的文件绝对路径或相关网址）——'
-        + '清单上留下的完成记录就是这些，缺了它「已完成」等于什么都没说。',
-    )
-    lines.push('做不完或做不了，就说明卡在哪里，**不要**把它标为完成。')
+    if (children.length === 0) {
+      lines.push(
+        `做完后调用 global_todo_done 工具，带上 id=${todo.id}、`
+          + '`summary`（一句话：做了什么、结论是什么）和 `artifacts`（这次产出的文件绝对路径或相关网址）——'
+          + '清单上留下的完成记录就是这些，缺了它「已完成」等于什么都没说。',
+      )
+    }
+    lines.push('做不完或做不了，就说明卡在哪里，**不要**把它标成完成。')
     return lines.join('\n')
   }
 
@@ -1093,7 +1475,7 @@ function dueBound(text) {
         total: mode === 'merge' ? existing.length + wouldCreate : records.length,
       }
     }
-    return store.update((existing) => {
+    return storeUpdate((existing) => {
       // Both directions go through the same fold the multi-machine sync uses: a imported
       // backup is just another replica, and a deletion in it has to win over a copy that
       // still has the record.
@@ -1142,7 +1524,7 @@ function dueBound(text) {
     const errors = []
     for (const id of wanted) {
       try {
-        const todo = await store.update((doc) => {
+        const todo = await storeUpdate((doc) => {
           const target = doc.todos.find((candidate) => candidate.id === id)
           if (target === undefined) return { result: null }
           const patch = {}
@@ -1250,7 +1632,7 @@ function dueBound(text) {
     // No stale records, no write: the sweep must not touch the file to report it had nothing to do.
     const pending = (await store.all()).filter((todo) => finished(todo) && (todo.doneAt ?? todo.updatedAt ?? todo.createdAt) < cutoff)
     if (pending.length === 0) return { removed: 0 }
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const doomed = doc.todos.filter((todo) => finished(todo) && (todo.doneAt ?? todo.updatedAt ?? todo.createdAt) < cutoff)
       if (doomed.length === 0) return { result: { removed: 0 } }
       const ids = new Set(doomed.map((todo) => todo.id))
@@ -1281,7 +1663,7 @@ function dueBound(text) {
     // No stale records, no write: the mount-time sweep must not touch the file just to
     // report that it had nothing to do.
     if (expiredInbox(await store.all(), { now: at, days }).length === 0) return { expired: 0 }
-    return store.update((doc) => {
+    return storeUpdate((doc) => {
       const stale = expiredInbox(doc.todos, { now: at, days })
       for (const todo of stale) {
         setStatusOn(todo, 'archived', { now: at, by: 'agent', reason: `收件箱超过 ${days} 天未确认` })
@@ -1293,7 +1675,7 @@ function dueBound(text) {
   /** @returns {Promise<object>} counts for the panel header and tool summaries */
   async function stats() {
     const todos = await store.all()
-    return counts(todos, now())
+    return counts(todos.filter((todo) => todo.parentId === ''), now())
   }
 
   /**
@@ -1318,10 +1700,13 @@ function dueBound(text) {
     list,
     listAll,
     get,
+    rootOf,
+    bindSession,
     awaitingReview,
     create,
     update,
     setStatus,
+    completeTree,
     review,
     reopen,
     complete,
@@ -1336,10 +1721,12 @@ function dueBound(text) {
     addLink,
     removeLink,
     recordDispatch,
+    reorderSiblings,
+    split,
     exportDocument,
     importDocument,
     select,
-    dispatchPrompt,
+    promptFor,
     capturePrompt,
     autoCapturePrompt,
     capturedSince,

@@ -91,6 +91,14 @@ window.__ModuleLoader__.load({
       'action.reopen': '标回未完成',
       'action.doing': '标为进行中',
       'action.pause': '标为未开始',
+      'action.addChild': '添加子事项',
+      'action.split': '自动拆分子任务',
+      'action.completeTree': '设置为完成',
+      'tree.expand': '展开子事项',
+      'tree.collapse': '收起子事项',
+      'tree.drag': '拖动调整同级顺序',
+      'tree.progress': '子事项完成 {percent}%',
+      'children.addHint': '正在给这条待办添加子事项；它共享父事项的工作区与工作目录。',
       'action.archive': '归档',
       'action.unarchive': '取消归档',
       'action.remove': '删除',
@@ -354,6 +362,19 @@ window.__ModuleLoader__.load({
       'field.stepsHint': '一行一步；派发时会作为编号计划交给 Agent。',
       'step.done': '标记这一步完成',
       'step.undo': '取消这一步的完成标记',
+      'meta.children': '子事项 {done}/{total}',
+      'detail.children': '子事项',
+      'children.none': '还没有子事项。',
+      'children.hint': '按工作顺序排列；拖动可调整顺序，父待办状态由子事项自动决定。',
+      'child.placeholder': '子事项内容，回车添加',
+      'child.add': '添加',
+      'child.remove': '删除子事项',
+      'child.drag': '拖动调整顺序',
+      'child.dispatch': '把这一项交给 Agent',
+      'child.status.open': '未开始',
+      'child.status.doing': '进行中',
+      'child.status.done': '已完成',
+      'children.autoStatus': '父待办状态由子事项自动决定',
       'detail.noDescription': '没有描述。',
       'detail.links': '相关文档与地址',
       'detail.completion': '完成记录',
@@ -433,6 +454,14 @@ window.__ModuleLoader__.load({
       'action.reopen': 'Reopen',
       'action.doing': 'Start',
       'action.pause': 'Mark not started',
+      'action.addChild': 'Add subtask',
+      'action.split': 'Split into subtasks automatically',
+      'action.completeTree': 'Mark complete',
+      'tree.expand': 'Expand subtasks',
+      'tree.collapse': 'Collapse subtasks',
+      'tree.drag': 'Drag to reorder siblings',
+      'tree.progress': '{percent}% of subtasks complete',
+      'children.addHint': 'Adding a subtask: it shares the parent workspace and working directory.',
       'action.archive': 'Archive',
       'action.unarchive': 'Unarchive',
       'action.remove': 'Delete',
@@ -693,6 +722,19 @@ window.__ModuleLoader__.load({
       'field.stepsHint': 'One per line; they ship to the agent as a numbered plan.',
       'step.done': 'Mark this step done',
       'step.undo': 'Clear this step',
+      'meta.children': 'subtasks {done}/{total}',
+      'detail.children': 'Subtasks',
+      'children.none': 'No subtasks yet.',
+      'children.hint': 'Listed in work order; drag to reorder. The parent status follows the subtasks automatically.',
+      'child.placeholder': 'Subtask text, press Enter to add',
+      'child.add': 'Add',
+      'child.remove': 'Remove subtask',
+      'child.drag': 'Drag to reorder',
+      'child.dispatch': 'Hand this subtask to an agent',
+      'child.status.open': 'Not started',
+      'child.status.doing': 'In progress',
+      'child.status.done': 'Done',
+      'children.autoStatus': 'The parent status follows its subtasks',
       'detail.noDescription': 'No description.',
       'detail.links': 'Documents and links',
       'detail.noLinks': 'No attachments. Attach an absolute document path, or a URL.',
@@ -1368,7 +1410,9 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
 .gt-item:hover { border-color: var(--dsw-alias-border-l2); }
 .gt-item[data-status="doing"] { border-left: 2px solid var(--dsw-alias-brand-primary); }
 .gt-item[data-overdue="1"] { border-left: 2px solid var(--dsw-alias-state-error-primary); }
-.gt-item[data-status="done"], .gt-item[data-status="cancelled"] { opacity: .72; }
+/* Never fade the whole card: a translucent done row lets the parent row's tint
+   show through under nested children. The title/meta are dimmed separately. */
+.gt-item[data-status="done"] .gt-item-body, .gt-item[data-status="cancelled"] .gt-item-body { opacity: .8; }
 /* Status at a glance: every state gets its own surface tint, and the state that
    is actually being worked on borrows the sidebar's shimmering running band.
    Hues and sweep speed come from color-style's --dcs-status-* variables, so
@@ -1381,21 +1425,21 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
 .gt-item[data-status="open"] {
   background-color: color-mix(in srgb,
     var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 0.35 * 1%),
-    var(--dsw-alias-bg-layer-2));
+    var(--dsw-alias-bg-base, #202127));
 }
 .gt-item[data-status="doing"] {
   background-color: color-mix(in srgb,
     var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1%),
-    var(--dsw-alias-bg-layer-2));
+    var(--dsw-alias-bg-base, #202127));
   background-image: linear-gradient(105deg,
     transparent 0%,
     color-mix(in srgb,
       var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1.7 * 1%),
-      var(--dsw-alias-bg-layer-2)) 30%,
+      var(--dsw-alias-bg-base, #202127)) 30%,
     transparent 58%,
     color-mix(in srgb,
       var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1.3 * 1%),
-      var(--dsw-alias-bg-layer-2)) 78%,
+      var(--dsw-alias-bg-base, #202127)) 78%,
     transparent 100%);
   background-size: 260% 100%;
   animation: gt-doing-band var(--dcs-status-speed, 3s) linear infinite;
@@ -1407,15 +1451,62 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
 .gt-item[data-status="done"] {
   background-color: color-mix(in srgb,
     var(--dcs-status-completed, #4ade80) calc(var(--dcs-status-alpha, 26) * 0.9 * 1%),
-    var(--dsw-alias-bg-layer-2));
+    var(--dsw-alias-bg-base, #202127));
 }
 .gt-item[data-status="cancelled"] {
   background-color: color-mix(in srgb,
-    var(--dsw-alias-label-secondary) 7%, var(--dsw-alias-bg-layer-2));
+    var(--dsw-alias-label-secondary) 7%, var(--dsw-alias-bg-base, #202127));
 }
 .gt-item[data-status="archived"] {
   background-color: color-mix(in srgb,
-    var(--dsw-alias-label-secondary) 4%, var(--dsw-alias-bg-layer-2));
+    var(--dsw-alias-label-secondary) 4%, var(--dsw-alias-bg-base, #202127));
+}
+/* A parent with its children visible turns into a container: only the header row
+   keeps the status surface/animation, so the glow never spills over the tree. */
+.gt-item:has(> .gt-children-tree) { background: transparent; border: 0; padding: 0; }
+.gt-item:has(> .gt-children-tree) > .gt-item-head {
+  padding: 12px 14px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px;
+  background-color: var(--dsw-alias-bg-layer-2, #202127);
+}
+.gt-item:has(> .gt-children-tree) > .gt-item-head:hover { border-color: var(--dsw-alias-border-l2); }
+.gt-item[data-open="1"]:has(> .gt-children-tree) > .gt-item-head { border-color: var(--dsw-alias-brand-primary); }
+.gt-item[data-status="open"]:has(> .gt-children-tree) > .gt-item-head {
+  background-color: color-mix(in srgb,
+    var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 0.35 * 1%),
+    var(--dsw-alias-bg-base, #202127));
+}
+.gt-item[data-status="doing"]:has(> .gt-children-tree) > .gt-item-head {
+  background-color: color-mix(in srgb,
+    var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1%),
+    var(--dsw-alias-bg-base, #202127));
+  background-image: linear-gradient(105deg,
+    transparent 0%,
+    color-mix(in srgb,
+      var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1.7 * 1%),
+      var(--dsw-alias-bg-base, #202127)) 30%,
+    transparent 58%,
+    color-mix(in srgb,
+      var(--dcs-status-working, #f5c542) calc(var(--dcs-status-alpha, 26) * 1.3 * 1%),
+      var(--dsw-alias-bg-base, #202127)) 78%,
+    transparent 100%);
+  background-size: 260% 100%;
+  animation: gt-doing-band var(--dcs-status-speed, 3s) linear infinite;
+}
+.gt-item[data-status="done"]:has(> .gt-children-tree) > .gt-item-head {
+  background-color: color-mix(in srgb,
+    var(--dcs-status-completed, #4ade80) calc(var(--dcs-status-alpha, 26) * 0.9 * 1%),
+    var(--dsw-alias-bg-base, #202127));
+}
+.gt-item[data-status="cancelled"]:has(> .gt-children-tree) > .gt-item-head {
+  background-color: color-mix(in srgb,
+    var(--dsw-alias-label-secondary) 7%, var(--dsw-alias-bg-base, #202127));
+}
+.gt-item[data-status="archived"]:has(> .gt-children-tree) > .gt-item-head {
+  background-color: color-mix(in srgb,
+    var(--dsw-alias-label-secondary) 4%, var(--dsw-alias-bg-base, #202127));
+}
+@media (prefers-reduced-motion: reduce) {
+  .gt-item[data-status="doing"] > .gt-item-head { animation: none; background-image: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .gt-item[data-status="doing"] { animation: none; background-image: none; }
@@ -1427,6 +1518,10 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
   display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .gt-check:hover { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
 .gt-check[data-on="1"] { border-color: var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted)); }
+/* A parent's status is derived: show it, don't offer a control with a confusing tooltip. */
+.gt-check-static { cursor: default; pointer-events: none; border-color: var(--dsw-alias-border-l2); }
+.gt-check-static[data-on="1"] { border-color: var(--dsw-alias-state-success-primary);
   background: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted)); }
 .gt-pick { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border-radius: 6px; cursor: pointer;
   border: 1.4px solid var(--dsw-alias-border-l2); background: transparent; color: transparent;
@@ -1556,13 +1651,15 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
 .gt-shot-wrap { display: inline-flex; }
 .gt-shot { width: 84px; height: 56px; object-fit: cover; border-radius: 6px;
   border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); }
-.gt-menu { position: absolute; top: 40px; right: 10px; z-index: 3; min-width: 184px; display: flex;
+.gt-menu { position: absolute; top: 40px; right: 10px; z-index: 40; min-width: 184px; display: flex;
   flex-direction: column; padding: 5px; background: var(--dsw-alias-bg-overlay);
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; }
 .gt-menu button { display: flex; align-items: center; gap: 8px; text-align: left; border: none;
   background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; padding: 8px 10px;
   border-radius: 7px; cursor: pointer; }
 .gt-menu button:hover { background: var(--dsw-alias-button-ghost-active-fill); }
+/* A row with its action menu open must paint above later rows in the tree. */
+.gt-item:has(.gt-menu), .gt-actions:has(.gt-menu) { z-index: 30; }
 .gt-menu button[data-danger="1"] { color: var(--dsw-alias-state-error-primary); }
 .gt-detail { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--dsw-alias-border-l1);
   padding-top: 12px; margin-top: 2px; }
@@ -1615,6 +1712,52 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
   background: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted)); }
 .gt-step-text { font-size: 13px; line-height: 20px; word-break: break-word; }
 .gt-step[data-done="1"] .gt-step-text { color: var(--dsw-alias-label-secondary); text-decoration: line-through; }
+/* Subtasks: order is the hand-off order, so the drag handle is always visible. */
+.gt-children { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.gt-child { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l1); background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 72%, transparent); }
+.gt-child[data-status="doing"] { border-color: color-mix(in srgb, var(--dcs-status-working, #f5c542) 55%, var(--dsw-alias-border-l1)); }
+.gt-child[data-status="done"] { opacity: .72; }
+.gt-child-drag { flex: 0 0 auto; cursor: grab; color: var(--dsw-alias-label-tertiary); font-size: 11px;
+  letter-spacing: -1px; user-select: none; }
+.gt-child-status { flex: 0 0 auto; min-width: 52px; padding: 1px 7px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--dsw-alias-border-l2); background: transparent; color: var(--dsw-alias-label-secondary);
+  font: inherit; font-size: 11px; }
+.gt-child-status[data-status="doing"] { color: var(--dcs-status-working, #e6b83f);
+  border-color: color-mix(in srgb, var(--dcs-status-working, #e6b83f) 55%, transparent); }
+.gt-child-status[data-status="done"] { color: var(--dsw-alias-state-success-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 55%, transparent); }
+.gt-child-title { flex: 1; min-width: 0; font-size: 13px; line-height: 20px; word-break: break-word; }
+.gt-child[data-status="done"] .gt-child-title { text-decoration: line-through; color: var(--dsw-alias-label-secondary); }
+.gt-child-action { width: 24px; height: 24px; opacity: .55; }
+.gt-child-action:hover { opacity: 1; }
+.gt-child-add { gap: 6px; margin-top: 2px; }
+/* Foldable todo tree: children are full rows nested under their parent. */
+.gt-children-tree { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 2px 14px;
+  padding-left: 10px; border-left: 1px dashed var(--dsw-alias-border-l2); }
+.gt-tree-toggle { position: relative; flex: 0 0 auto; width: 26px; height: 26px; margin: 0; padding: 0;
+  border: none; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: .78;
+  transition: background .12s ease, color .12s ease, opacity .12s ease; }
+.gt-tree-toggle:hover { background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-3));
+  color: var(--dsw-alias-label-primary); opacity: 1; }
+.gt-tree-toggle:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; opacity: 1; }
+.gt-tree-toggle[data-open="1"] { opacity: .95; }
+.gt-tree-ring { position: absolute; inset: 0; width: 26px; height: 26px; overflow: visible; pointer-events: none; }
+.gt-tree-ring-track { fill: none; stroke: var(--dsw-alias-border-l2); stroke-width: 1.6; }
+.gt-tree-ring-value { fill: none; stroke: var(--dsw-alias-state-success-primary); stroke-width: 1.8;
+  stroke-linecap: round; transition: stroke-dashoffset .25s ease; }
+.gt-tree-chevron { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  transition: transform .16s cubic-bezier(.2, .8, .2, 1); transform-origin: 50% 50%; }
+.gt-tree-chevron svg { width: 12px; height: 12px; }
+.gt-tree-toggle[data-open="1"] .gt-tree-chevron { transform: rotate(90deg); }
+.gt-tree-drag { flex: 0 0 auto; width: 14px; text-align: center; cursor: grab;
+  color: var(--dsw-alias-label-tertiary); font-size: 11px; letter-spacing: -1px;
+  user-select: none; opacity: .5; transition: opacity .12s ease; }
+.gt-tree-drag:hover { opacity: 1; }
+.gt-item[data-child="1"] { padding: 9px 12px; min-height: 0; gap: 6px; isolation: isolate; }
+.gt-item[data-child="1"] .gt-detail { padding-top: 4px; }
+@media (prefers-reduced-motion: reduce) { .gt-child-drag { cursor: default; } }
 .gt-note-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
 .gt-note-item + .gt-note-item { border-top: 1px solid var(--dsw-alias-border-l1); }
 .gt-note-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dsw-alias-label-secondary);
@@ -2156,8 +2299,37 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
      *   dispatchLabel: string, onAction: Function, onToggleOpen: Function }} props
      */
     function TodoItem(props) {
-      const { todo, lang, busy, open, dispatchLabel, onAction, onToggleOpen, ctx = null } = props
+      const {
+        todo,
+        lang,
+        busy,
+        open: openProp,
+        dispatchLabel,
+        onAction,
+        onToggleOpen,
+        ctx = null,
+        childrenByParent = {},
+        depth = 0,
+        expandedChildren = {},
+        onToggleChildren = () => {},
+      } = props
       const t = (key, params) => translate(lang, key, params)
+      const open = typeof props.isOpen === 'function' ? props.isOpen(todo.id) : openProp
+      const children = childrenByParent[todo.id] ?? []
+      const hasChildren = children.length > 0
+      // A parent's ring is the average of its children's completion; a child with
+      // its own children contributes its own recursive ratio (not just done/open).
+      const progressOf = (node, seen = new Set()) => {
+        if (seen.has(node.id)) return 0
+        const kids = childrenByParent[node.id] ?? []
+        if (kids.length === 0) return node.status === 'done' ? 1 : 0
+        seen.add(node.id)
+        const total = kids.reduce((sum, child) => sum + progressOf(child, seen), 0) / kids.length
+        seen.delete(node.id)
+        return total
+      }
+      const progress = hasChildren ? progressOf(todo) : 0
+      const percent = Math.round(progress * 100)
       const now = Date.now()
       const done = todo.status === 'done'
       const cancelled = todo.status === 'cancelled'
@@ -2276,6 +2448,10 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         const done = todo.steps.filter((step) => step.done === true).length
         meta.push(h('span', { key: 'steps' }, t('meta.steps', { done, total: todo.steps.length })))
       }
+      if (hasChildren) {
+        const doneChildren = children.filter((child) => child.status === 'done').length
+        meta.push(h('span', { key: 'children' }, t('meta.children', { done: doneChildren, total: children.length })))
+      }
       if (todo.tags.length > 0) {
         const shown = todo.tags.slice(0, 4)
         meta.push(
@@ -2335,6 +2511,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
           if (target.closest('input, textarea, [contenteditable="true"], .gt-menu') !== null) return
         }
         if (typeof event.preventDefault === 'function') event.preventDefault()
+        if (typeof event.stopPropagation === 'function') event.stopPropagation()
         const trigger = event.currentTarget.querySelector('.gt-actions .gt-iconbtn[aria-haspopup="menu"]')
         if (trigger !== null && trigger !== undefined && typeof trigger.click === 'function') trigger.click()
       }
@@ -2348,8 +2525,38 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
           'data-overdue': overdue ? '1' : '0',
           'data-open': open ? '1' : '0',
           'data-selected': picked === true ? '1' : '0',
+          'data-depth': String(depth),
+          'data-child': todo.parentId !== '' ? '1' : '0',
           role: 'listitem',
           onContextMenu: openRowMenu,
+          onDragOver: (event) => {
+            if (todo.parentId === '') return
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+            try {
+              event.dataTransfer.dropEffect = 'move'
+            } catch {
+              /* older browser */
+            }
+          },
+          onDrop: (event) => {
+            if (todo.parentId === '') return
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+            let draggedId = ''
+            try {
+              draggedId = event.dataTransfer.getData('text/plain')
+            } catch {
+              draggedId = ''
+            }
+            if (draggedId === '' || draggedId === todo.id) return
+            const siblings = childrenByParent[todo.parentId] ?? []
+            const order = siblings.map((child) => child.id)
+            const from = order.indexOf(draggedId)
+            const to = order.indexOf(todo.id)
+            if (from < 0 || to < 0 || from === to) return
+            order.splice(from, 1)
+            order.splice(to, 0, draggedId)
+            void onAction('reorder-siblings', todo, { parentId: todo.parentId, order })
+          },
         },
         h(
           'div',
@@ -2368,19 +2575,86 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
                 h(Icon, { name: 'check', size: 11 }),
               )
             : null,
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'gt-check',
-              'data-on': done ? '1' : '0',
-              disabled: busy,
-              title: done ? t('action.reopen') : t('action.done'),
-              'aria-label': done ? t('action.reopen') : t('action.done'),
-              onClick: () => onAction(done ? 'reopen' : 'done', todo),
-            },
-            h(Icon, { name: 'check', size: 12 }),
-          ),
+          hasChildren
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gt-tree-toggle',
+                  'data-open': expandedChildren[todo.id] === true ? '1' : '0',
+                  title:
+                    (expandedChildren[todo.id] === true ? t('tree.collapse') : t('tree.expand'))
+                    + ' · '
+                    + t('tree.progress', { percent: String(percent) }),
+                  'aria-label':
+                    (expandedChildren[todo.id] === true ? t('tree.collapse') : t('tree.expand'))
+                    + ' · '
+                    + t('tree.progress', { percent: String(percent) }),
+                  'aria-expanded': expandedChildren[todo.id] === true,
+                  onClick: () => onToggleChildren(todo.id),
+                },
+                h(
+                  'svg',
+                  { className: 'gt-tree-ring', viewBox: '0 0 24 24', 'aria-hidden': true },
+                  h('circle', { className: 'gt-tree-ring-track', cx: 12, cy: 12, r: 10, pathLength: 100 }),
+                  h('circle', {
+                    className: 'gt-tree-ring-value',
+                    cx: 12,
+                    cy: 12,
+                    r: 10,
+                    pathLength: 100,
+                    strokeDasharray: '100 100',
+                    strokeDashoffset: String(100 - percent),
+                    transform: 'rotate(-90 12 12)',
+                  }),
+                ),
+                h('span', { className: 'gt-tree-chevron' }, h(Icon, { name: 'chevron', size: 12 })),
+              )
+            : null,
+          todo.parentId !== ''
+            ? h(
+                'span',
+                {
+                  className: 'gt-tree-drag',
+                  draggable: busy ? 'false' : 'true',
+                  title: t('tree.drag'),
+                  'aria-hidden': true,
+                  onDragStart: (event) => {
+                    try {
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', todo.id)
+                    } catch {
+                      /* drag-and-drop is a nicety, never a failure */
+                    }
+                  },
+                },
+                '⋮⋮',
+              )
+            : null,
+          hasChildren
+            ? h(
+                'span',
+                {
+                  className: 'gt-check gt-check-static',
+                  'data-on': done ? '1' : '0',
+                  'aria-hidden': true,
+                  title: '',
+                },
+                done ? h(Icon, { name: 'check', size: 12 }) : null,
+              )
+            : h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gt-check',
+                  'data-on': done ? '1' : '0',
+                  disabled: busy,
+                  title: done ? t('action.reopen') : t('action.done'),
+                  'aria-label': done ? t('action.reopen') : t('action.done'),
+                  onClick: () => onAction(done ? 'reopen' : 'done', todo),
+                },
+                h(Icon, { name: 'check', size: 12 }),
+              ),
           h(
             'div',
             {
@@ -2547,20 +2821,50 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
                       { key: 'discard', label: t('action.discard'), icon: 'trash', danger: true, onSelect: () => onAction('discard', todo) },
                     ]
                   : []),
+                ...(todo.status === 'done' || todo.status === 'archived'
+                  ? []
+                  : [
+                      {
+                        key: 'complete-tree',
+                        label: t('action.completeTree'),
+                        icon: 'check',
+                        onSelect: () => onAction('complete-tree', todo),
+                      },
+                    ]),
+                {
+                  key: 'add-child',
+                  label: t('action.addChild'),
+                  icon: 'plus',
+                  onSelect: () => onAction('add-child', todo),
+                },
+                {
+                  key: 'split',
+                  label: t('action.split'),
+                  icon: 'refresh',
+                  onSelect: () => onAction('split', todo),
+                },
                 {
                   key: 'toggle',
                   label: open ? t('action.hide') : t('action.detail'),
                   icon: 'chevron',
                   onSelect: () => onToggleOpen(todo.id),
                 },
-                done
-                  ? { key: 'reopen', label: t('action.reopen'), icon: 'check', onSelect: () => onAction('reopen', todo) }
-                  : todo.status === 'doing'
-                    ? { key: 'pause', label: t('action.pause'), icon: 'clock', onSelect: () => onAction('reopen', todo) }
-                    : { key: 'doing', label: t('action.doing'), icon: 'clock', onSelect: () => onAction('doing', todo) },
-                todo.status === 'archived'
-                  ? { key: 'unarchive', label: t('action.unarchive'), icon: 'check', onSelect: () => onAction('unarchive', todo) }
-                  : { key: 'archive', label: t('action.archive'), icon: 'doc', onSelect: () => onAction('archive', todo) },
+                ...(hasChildren
+                  ? []
+                  : [
+                      done
+                        ? { key: 'reopen', label: t('action.reopen'), icon: 'check', onSelect: () => onAction('reopen', todo) }
+                        : todo.status === 'doing'
+                          ? { key: 'pause', label: t('action.pause'), icon: 'clock', onSelect: () => onAction('reopen', todo) }
+                          : { key: 'doing', label: t('action.doing'), icon: 'clock', onSelect: () => onAction('doing', todo) },
+                    ]),
+                ...(todo.parentId !== ''
+                  ? []
+                  : [
+                      todo.status === 'archived'
+                        ? { key: 'unarchive', label: t('action.unarchive'), icon: 'check', onSelect: () => onAction('unarchive', todo) }
+                        : { key: 'archive', label: t('action.archive'), icon: 'doc', onSelect: () => onAction('archive', todo) },
+                    ]),
                 {
                   key: 'remove',
                   label: confirming ? t('action.removeConfirm') : t('action.remove'),
@@ -2579,6 +2883,23 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
             }),
           ),
         ),
+        hasChildren && expandedChildren[todo.id] === true
+          ? h(
+              'div',
+              { className: 'gt-children-tree', role: 'group' },
+              children.map((child) =>
+                h(TodoItem, {
+                  ...props,
+                  key: child.id,
+                  todo: child,
+                  busy: false,
+                  open: false,
+                  depth: depth + 1,
+                  isOpen: props.isOpen,
+                }),
+              ),
+            )
+          : null,
         open
           ? h(
               'div',
@@ -3062,6 +3383,10 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
       // The add form used to sit open above the list forever; it is a card you open when
       // you need it, not furniture.
       const [adding, setAdding] = useState(false)
+      // Which todo the add form is adding a subtask to; '' means a top-level todo.
+      const [addingParentId, setAddingParentId] = useState('')
+      // Foldable hierarchy: which rows currently show their children.
+      const [expandedTree, setExpandedTree] = useState({})
       // The preview harness cannot re-render after a click, so it may ask to start in
       // selection mode; a person toggles it with the `选择` control.
       const [selectMode, setSelectMode] = useState(props.initialSelectMode === true)
@@ -3698,6 +4023,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
             method: 'POST',
             body: {
               title,
+              ...(addingParentId === '' ? {} : { parentId: addingParentId }),
               ...(draft.description.trim() === '' ? {} : { description: draft.description.trim() }),
               ...(links.length === 0 ? {} : { links }),
               ...(steps.length === 0 ? {} : { steps }),
@@ -3709,6 +4035,8 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         )
         setDraft({ title: '', description: '', links: '', steps: '', tags: '', priority: 'normal', due: '' })
         setMore(false)
+        setAdding(false)
+        setAddingParentId('')
       }
 
       /** A conversation in the todo's own workspace, newest first, skipping archived ones. */
@@ -4182,6 +4510,19 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         if (kind === 'unarchive') return run(todo.id, () => call('status', { method: 'POST', body: { id: todo.id, status: 'open' } }))
         if (kind === 'save') return run(todo.id, () => call('update', { method: 'POST', body: { id: todo.id, ...payload } }))
         if (kind === 'steps') return run(todo.id, () => call('update', { method: 'POST', body: { id: todo.id, steps: payload.steps } }))
+        if (kind === 'complete-tree') return run(todo.id, () => call('complete', { method: 'POST', body: { id: todo.id } }))
+        if (kind === 'add-child') {
+          setAddingParentId(todo.id)
+          setAdding(true)
+          setExpandedTree((current) => ({ ...current, [todo.id]: true }))
+          setExpandedId('')
+          return undefined
+        }
+        if (kind === 'reorder-siblings') {
+          return run(todo.id, () =>
+            call('reorder', { method: 'POST', body: { parentId: payload.parentId, order: payload.order } }),
+          )
+        }
         if (kind === 'note') return run(todo.id, () => call('note', { method: 'POST', body: { id: todo.id, ...payload } }))
         if (kind === 'link') return run(todo.id, () => call('link', { method: 'POST', body: { id: todo.id, ...payload } }))
         if (kind === 'relink') {
@@ -4198,7 +4539,8 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
             showUndo(removed.todo ?? todo)
           })
         }
-        if (kind === 'dispatch') {
+        if (kind === 'dispatch' || kind === 'split') {
+          const purpose = kind === 'split' ? 'split' : 'work'
           const inWorkspace = targetValue.startsWith('new:') ? targetValue.slice(4) : ''
           const followsCurrent = targetValue === 'current'
           const pinned = targetValue === 'auto' || followsCurrent || targetValue.startsWith('new') ? '' : targetValue
@@ -4213,6 +4555,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
               body: {
                 id: todo.id,
                 mode,
+                purpose,
                 ...(sessionId === '' ? {} : { sessionId, authoritative: true }),
                 ...(effectiveDir === '' ? {} : { dir: effectiveDir }),
                 ...(inWorkspace === '' ? {} : { workspaceId: inWorkspace }),
@@ -4223,6 +4566,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
             // how this was reported once.
             const target = typeof result?.sessionId === 'string' && result.sessionId !== '' ? result.sessionId : ''
             const title = target === '' ? '' : (sessionTitles[target] ?? '')
+            if (purpose === 'split') setExpandedTree((current) => ({ ...current, [todo.id]: true }))
             setNotice({
               text:
                 title !== ''
@@ -4433,7 +4777,19 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [dueKey])
-      const visibleTodos = state.todos
+      const childrenByParent = useMemo(() => {
+        const map = {}
+        for (const todo of state.todos) {
+          if (typeof todo.parentId !== 'string' || todo.parentId === '') continue
+          if (map[todo.parentId] === undefined) map[todo.parentId] = []
+          map[todo.parentId].push(todo)
+        }
+        for (const list of Object.values(map)) {
+          list.sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.createdAt - right.createdAt)
+        }
+        return map
+      }, [state.todos])
+      const visibleTodos = useMemo(() => state.todos.filter((todo) => (todo.parentId ?? '') === ''), [state.todos])
       const groups = useMemo(
         () => groupTodos(visibleTodos, Date.now(), groupMode, t),
         [visibleTodos, groupMode, lang],
@@ -5182,6 +5538,7 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
             ? h(
             'div',
             { className: 'gt-card gt-new' },
+            addingParentId !== '' ? h('div', { className: 'gt-hint' }, t('children.addHint')) : null,
             h(
               'div',
               { className: 'gt-row' },
@@ -5843,6 +6200,11 @@ button.gt-chip[data-on="1"] { color: var(--dsw-alias-label-primary); border-colo
                                 ctx,
                                 busy: busyId === todo.id,
                                 open: expandedId === todo.id,
+                                isOpen: (id) => expandedId === id,
+                                childrenByParent,
+                                depth: 0,
+                                expandedChildren: expandedTree,
+                                onToggleChildren: (id) => setExpandedTree((current) => ({ ...current, [id]: current[id] !== true })),
                                 dispatchLabel,
                                 onAction,
                                 onToggleOpen: (id) => {

@@ -28,6 +28,12 @@ export const SCHEMA_VERSION = 2
 /** Lifecycle states. `doing` is the explicit "an agent (or I) am on it" state. */
 export const STATUSES = Object.freeze(['open', 'doing', 'done', 'cancelled', 'archived'])
 
+/**
+ * Subtask lifecycle. A child is never archived: only its parent is a list
+ * record, so "archive" is a property of the whole todo, not of its parts.
+ */
+export const CHILD_STATUSES = Object.freeze(['open', 'doing', 'done'])
+
 /** Priorities are deliberately coarse: three levels people actually use. */
 /**
  * Levels, most urgent first: P0 紧急 / P1 高 / P2 常规 / P3 低.
@@ -125,6 +131,10 @@ export const LIMITS = Object.freeze({
   // item should be split, and a cap keeps the dispatch prompt from becoming a document.
   steps: 20,
   step: 200,
+  // Subtasks are the order an agent should work in. A parent with more than this
+  // is a project, not a todo; the cap keeps the dispatch prompt readable.
+  children: 50,
+  child: 200,
   // The sentence the item came from. A captured todo without its source reads as an
   // opinion later; with it, the person can check whether it was heard correctly.
   evidence: 300,
@@ -404,6 +414,12 @@ export function createTodo(input, options = {}) {
     // An optional plan inside the todo: the steps a person or an agent broke it into.
     // Shipped to the agent as a numbered list, so hand-off stops being one paragraph.
     steps: normalizeSteps(raw.steps),
+    // A subtask is a full todo with a parent pointer; the parent's status is
+    // derived from its direct children (see recomputeParentStatuses).
+    parentId: typeof raw.parentId === 'string' ? raw.parentId.trim() : '',
+    // Position among siblings; lower comes first. The array is not stored — the
+    // order is a field so a reorder is one small write and survives merges.
+    order: Number.isInteger(raw.order) && raw.order >= 0 ? raw.order : 0,
     // Where it came from, in the author's own words: empty means "typed here".
     evidence: normalizeText(raw.evidence, '原话', LIMITS.evidence, 'invalid-evidence'),
     createdAt: now,
@@ -532,6 +548,8 @@ export function normalizeStored(raw, options = {}) {
         return []
       }
     })(),
+    parentId: typeof raw.parentId === 'string' ? raw.parentId : '',
+    order: Number.isInteger(raw.order) && raw.order >= 0 ? raw.order : 0,
     createdAt,
     updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : createdAt,
     createdBy: normalizeActor(raw.createdBy),
@@ -846,6 +864,7 @@ export function applyPatch(todo, patch, options = {}) {
       // Reaching done through a patch carries the same review rule as the dedicated
       // status path: an agent's "done" is a claim, a person's is a decision.
       todo.review = status === 'done' && by === 'agent' ? { pending: true, at: now, by } : null
+      if (status !== 'done') todo.completion = null
       changed.push('status')
     }
   }
@@ -905,6 +924,69 @@ export function setStatus(todo, status, options = {}) {
 }
 
 /**
+ * Recompute every parent's status from its direct children, recursively.
+ *
+ * Children are ordinary todos with a `parentId`; ordering is the `order` field
+ * (then creation time as a tie-break). A parent is open only when every direct
+ * child is effectively open, done only when every direct child is effectively
+ * done, and doing otherwise. An archived parent stays archived.
+ *
+ * @param {object[]} todos - mutated in place
+ * @param {{ now?: number, by?: 'human' | 'agent', silent?: boolean, activityLimit?: number }} [options]
+ * @returns {string[]} ids whose stored status changed
+ */
+export function recomputeParentStatuses(todos, options = {}) {
+  const now = options.now ?? Date.now()
+  const by = normalizeActor(options.by)
+  const byId = new Map(todos.map((todo) => [todo.id, todo]))
+  const childrenOf = new Map()
+  for (const todo of todos) {
+    if (typeof todo.parentId !== 'string' || todo.parentId === '' || !byId.has(todo.parentId)) continue
+    const bucket = childrenOf.get(todo.parentId)
+    if (bucket === undefined) childrenOf.set(todo.parentId, [todo])
+    else bucket.push(todo)
+  }
+  for (const bucket of childrenOf.values()) {
+    bucket.sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.createdAt - right.createdAt || (left.seq ?? 0) - (right.seq ?? 0))
+  }
+  const changed = []
+  const visiting = new Set()
+  const effective = (todo) => {
+    if (visiting.has(todo.id)) return todo.status
+    const children = childrenOf.get(todo.id) ?? []
+    if (children.length === 0) return todo.status
+    visiting.add(todo.id)
+    const statuses = children.map((child) => effective(child))
+    visiting.delete(todo.id)
+    let next = 'doing'
+    if (statuses.every((status) => status === 'open')) next = 'open'
+    else if (statuses.every((status) => status === 'done')) next = 'done'
+    if (todo.status === 'archived') return 'archived'
+    if (todo.status !== next) {
+      todo.status = next
+      todo.doneAt = next === 'done' ? now : null
+      todo.completion = null
+      todo.review = null
+      changed.push(todo.id)
+      if (options.silent !== true) {
+        todo.updatedAt = now
+        todo.updatedBy = by
+        pushActivity(
+          todo,
+          { kind: 'status', by, at: now, summary: `子事项自动：${next}` },
+          options.activityLimit ?? LIMITS.activity,
+        )
+      }
+    } else if (next === 'done' && todo.doneAt === null) {
+      todo.doneAt = now
+    }
+    return todo.status
+  }
+  for (const todo of todos) effective(todo)
+  return changed
+}
+
+/**
  * An optional plan inside a todo.
  *
  * A step is text plus a tick, and the order is the plan. Strings are accepted for the
@@ -947,6 +1029,315 @@ export function normalizeSteps(value) {
     out.push({ text, done: item.done === true })
   }
   return out
+}
+
+/**
+ * A subtask. Stored inline on the parent so the order is the array order — the
+ * order a person sees and the order an agent is told to work in.
+ *
+ * @param {unknown} value
+ * @returns {{ id: string, title: string, status: 'open' | 'doing' | 'done', createdAt: number, updatedAt: number, lastDispatch: object | null } | null}
+ */
+function normalizeChild(value) {
+  if (typeof value === 'string') {
+    const title = value.trim()
+    return title === '' ? null : { id: '', title, status: 'open', createdAt: 0, updatedAt: 0, lastDispatch: null }
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const title = typeof value.title === 'string' ? value.title.trim() : typeof value.text === 'string' ? value.text.trim() : ''
+  if (title === '') return null
+  return {
+    id: typeof value.id === 'string' && value.id !== '' ? value.id : '',
+    title: title.slice(0, LIMITS.child),
+    status: CHILD_STATUSES.includes(value.status) ? value.status : 'open',
+    createdAt: Number.isFinite(value.createdAt) ? Number(value.createdAt) : 0,
+    updatedAt: Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : 0,
+    lastDispatch: value.lastDispatch !== null && typeof value.lastDispatch === 'object' ? { ...value.lastDispatch } : null,
+  }
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Array<object>} tolerant normalization; malformed entries are dropped
+ */
+export function normalizeChildren(value) {
+  if (value === null || value === undefined || value === '') return []
+  if (!Array.isArray(value)) throw new TodoError('invalid-children', '子事项必须是数组')
+  if (value.length > LIMITS.children) {
+    throw new TodoError('invalid-children', `子事项最多 ${LIMITS.children} 条，收到 ${value.length} 条`)
+  }
+  const out = []
+  const now = Date.now()
+  for (const item of value) {
+    const child = normalizeChild(item)
+    if (child === null) continue
+    out.push({
+      id: child.id === '' ? newChildId(out) : child.id,
+      title: child.title,
+      status: child.status,
+      createdAt: child.createdAt > 0 ? child.createdAt : now,
+      updatedAt: child.updatedAt > 0 ? child.updatedAt : child.createdAt > 0 ? child.createdAt : now,
+      lastDispatch: child.lastDispatch,
+    })
+  }
+  return out
+}
+
+/**
+ * @param {Array<object>} children
+ * @returns {'open' | 'doing' | 'done' | null} derived parent status, or null when there are no children
+ */
+export function deriveChildrenStatus(children) {
+  if (!Array.isArray(children) || children.length === 0) return null
+  if (children.every((child) => child.status === 'open')) return 'open'
+  if (children.every((child) => child.status === 'done')) return 'done'
+  return 'doing'
+}
+
+/**
+ * Force the parent status to follow its children.
+ *
+ * - all open -> open
+ * - all done -> done
+ * - any doing / some done -> doing
+ *
+ * An archived parent stays archived: archiving is a decision about the list
+ * record, not about the work inside it.
+ *
+ * @param {object} todo
+ * @param {{ now?: number, by?: 'human' | 'agent', silent?: boolean, activityLimit?: number }} [options]
+ * @returns {boolean} whether the stored status changed
+ */
+export function applyChildrenStatus(todo, options = {}) {
+  const next = deriveChildrenStatus(todo.children)
+  if (next === null) return false
+  if (todo.status === 'archived') return false
+  const now = options.now ?? Date.now()
+  const by = normalizeActor(options.by)
+  if (todo.status === next) {
+    if (next === 'done' && todo.doneAt === null) todo.doneAt = now
+    return false
+  }
+  todo.status = next
+  todo.doneAt = next === 'done' ? now : null
+  // A derived completion is not an agent's claim; clear both the old evidence
+  // record and any pending review when the grouped status moves.
+  todo.completion = null
+  todo.review = null
+  if (options.silent !== true) {
+    todo.updatedAt = now
+    todo.updatedBy = by
+    pushActivity(
+      todo,
+      {
+        kind: 'status',
+        by,
+        at: now,
+        summary: `子事项自动：${next}`,
+      },
+      options.activityLimit ?? LIMITS.activity,
+    )
+  }
+  return true
+}
+
+/** @param {object} todo @param {object} [options] @returns {boolean} */
+export function syncChildrenStatus(todo, options = {}) {
+  return applyChildrenStatus(todo, options)
+}
+
+/** @param {Array<object>} children @returns {string} */
+export function newChildId(children = []) {
+  const taken = new Set(children.map((child) => child.id))
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = `c-${randomUUID().replace(/-/g, '').slice(0, 8)}`
+    if (!taken.has(candidate)) return candidate
+  }
+  throw new TodoError('internal', '无法生成不重复的子事项 id')
+}
+
+/** @param {object} todo @param {string} childId @returns {object | undefined} */
+export function findChild(todo, childId) {
+  return (todo.children ?? []).find((child) => child.id === childId)
+}
+
+/** Mark a child mutation on the parent record. */
+function touchChildren(todo, now, by) {
+  todo.updatedAt = now
+  todo.updatedBy = normalizeActor(by)
+}
+
+/**
+ * @param {object} todo
+ * @param {string} title
+ * @param {{ now?: number, by?: 'human' | 'agent', status?: string, activityLimit?: number }} [options]
+ * @returns {object} the added child
+ */
+export function addChildTo(todo, title, options = {}) {
+  const text = String(title ?? '').trim()
+  if (text === '') throw new TodoError('invalid-children', '子事项不能为空')
+  if (text.length > LIMITS.child) throw new TodoError('invalid-children', `每个子事项最多 ${LIMITS.child} 字，收到 ${text.length} 字`)
+  if ((todo.children ?? []).length >= LIMITS.children) {
+    throw new TodoError('invalid-children', `子事项最多 ${LIMITS.children} 条`)
+  }
+  const now = options.now ?? Date.now()
+  const by = normalizeActor(options.by)
+  const child = {
+    id: newChildId(todo.children ?? []),
+    title: text,
+    status: CHILD_STATUSES.includes(options.status) ? options.status : 'open',
+    createdAt: now,
+    updatedAt: now,
+    lastDispatch: null,
+  }
+  todo.children = [...(todo.children ?? []), child]
+  touchChildren(todo, now, by)
+  pushActivity(
+    todo,
+    { kind: 'child-added', by, at: now, summary: text.slice(0, 120) },
+    options.activityLimit ?? LIMITS.activity,
+  )
+  applyChildrenStatus(todo, { now, by, activityLimit: options.activityLimit })
+  return child
+}
+
+/**
+ * @param {object} todo
+ * @param {string} childId
+ * @param {{ title?: string, status?: string }} patch
+ * @param {{ now?: number, by?: 'human' | 'agent', activityLimit?: number }} [options]
+ * @returns {object} the updated child
+ */
+export function updateChildIn(todo, childId, patch = {}, options = {}) {
+  const child = findChild(todo, childId)
+  if (child === undefined) throw new TodoError('invalid-children', `找不到子事项 ${childId}`)
+  const now = options.now ?? Date.now()
+  const by = normalizeActor(options.by)
+  const changes = []
+  if (patch.title !== undefined) {
+    const text = String(patch.title ?? '').trim()
+    if (text === '') throw new TodoError('invalid-children', '子事项不能为空')
+    if (text.length > LIMITS.child) throw new TodoError('invalid-children', `每个子事项最多 ${LIMITS.child} 字，收到 ${text.length} 字`)
+    if (text !== child.title) {
+      child.title = text
+      changes.push('文本')
+    }
+  }
+  if (patch.status !== undefined) {
+    if (!CHILD_STATUSES.includes(patch.status)) {
+      throw new TodoError('invalid-children', `子事项状态只能是 ${CHILD_STATUSES.join(' / ')}`)
+    }
+    if (patch.status !== child.status) {
+      child.status = patch.status
+      changes.push(`状态→${patch.status}`)
+    }
+  }
+  if (changes.length === 0) return child
+  child.updatedAt = now
+  touchChildren(todo, now, by)
+  pushActivity(
+    todo,
+    { kind: 'child-updated', by, at: now, summary: `${child.title}：${changes.join('、')}`.slice(0, 120) },
+    options.activityLimit ?? LIMITS.activity,
+  )
+  applyChildrenStatus(todo, { now, by, activityLimit: options.activityLimit })
+  return child
+}
+
+/**
+ * @param {object} todo
+ * @param {string} childId
+ * @param {{ now?: number, by?: 'human' | 'agent', activityLimit?: number }} [options]
+ * @returns {object} the removed child
+ */
+export function removeChildFrom(todo, childId, options = {}) {
+  const child = findChild(todo, childId)
+  if (child === undefined) throw new TodoError('invalid-children', `找不到子事项 ${childId}`)
+  const now = options.now ?? Date.now()
+  const by = normalizeActor(options.by)
+  todo.children = (todo.children ?? []).filter((item) => item.id !== childId)
+  touchChildren(todo, now, by)
+  pushActivity(
+    todo,
+    { kind: 'child-removed', by, at: now, summary: child.title.slice(0, 120) },
+    options.activityLimit ?? LIMITS.activity,
+  )
+  applyChildrenStatus(todo, { now, by, activityLimit: options.activityLimit })
+  return child
+}
+
+/**
+ * Reorder children by id list. The caller must name every current child exactly once.
+ *
+ * @param {object} todo
+ * @param {string[]} order
+ * @param {{ now?: number, by?: 'human' | 'agent', activityLimit?: number }} [options]
+ * @returns {boolean} whether the order changed
+ */
+export function reorderChildrenOf(todo, order, options = {}) {
+  const children = todo.children ?? []
+  if (!Array.isArray(order) || order.length !== children.length) {
+    throw new TodoError('invalid-children', '排序需要给出全部子事项的 id')
+  }
+  const byId = new Map(children.map((child) => [child.id, child]))
+  const seen = new Set()
+  const next = []
+  for (const id of order) {
+    const child = byId.get(id)
+    if (child === undefined || seen.has(id)) throw new TodoError('invalid-children', '排序里的子事项 id 不合法')
+    seen.add(id)
+    next.push(child)
+  }
+  const same = next.every((child, index) => child.id === children[index].id)
+  if (same) return false
+  const now = options.now ?? Date.now()
+  const by = normalizeActor(options.by)
+  todo.children = next
+  touchChildren(todo, now, by)
+  pushActivity(
+    todo,
+    { kind: 'children-reordered', by, at: now, summary: '调整了子事项顺序' },
+    options.activityLimit ?? LIMITS.activity,
+  )
+  return true
+}
+
+/**
+ * Remember a hand-off of one child; the parent keeps its own lastDispatch.
+ *
+ * @param {object} todo
+ * @param {string} childId
+ * @param {{ mode: string, sessionId?: string, ok: boolean, error?: string, dir?: string }} info
+ * @param {{ now?: number, by?: 'human' | 'agent', activityLimit?: number }} [options]
+ * @returns {object} the child
+ */
+export function recordChildDispatchOn(todo, childId, info, options = {}) {
+  const child = findChild(todo, childId)
+  if (child === undefined) throw new TodoError('invalid-children', `找不到子事项 ${childId}`)
+  const now = options.now ?? Date.now()
+  const sessionId = typeof info.sessionId === 'string' ? info.sessionId : ''
+  child.lastDispatch = {
+    at: now,
+    mode: info.mode,
+    ok: info.ok === true,
+    ...(sessionId === '' ? {} : { sessionId }),
+    ...(typeof info.dir === 'string' && info.dir !== '' ? { dir: info.dir } : {}),
+    ...(typeof info.error === 'string' && info.error !== '' ? { error: info.error } : {}),
+  }
+  child.updatedAt = now
+  touchChildren(todo, now, options.by)
+  const verb = info.ok === true ? '已派发' : '派发失败'
+  pushActivity(
+    todo,
+    {
+      kind: info.ok === true ? 'child-dispatched' : 'child-dispatch-failed',
+      by: options.by ?? 'human',
+      at: now,
+      summary: `${verb}：${child.title.slice(0, 80)}${info.ok === true && sessionId !== '' ? ` → ${sessionId}` : ''}`,
+    },
+    options.activityLimit ?? LIMITS.activity,
+  )
+  return child
 }
 
 /**
@@ -1129,6 +1520,8 @@ export function counts(todos, now = Date.now()) {
     review: 0,
   }
   for (const todo of todos) {
+    // Subtasks are part of their parent's work, not separate board entries.
+    if (todo.parentId !== '') continue
     // Waiting for a person counts only while it is still active; an archived inbox item is
     // history, not a pending decision.
     const waiting = isInbox(todo) && (todo.status === 'open' || todo.status === 'doing')

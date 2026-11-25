@@ -780,6 +780,14 @@ export function createRoutes(deps) {
       return service.update(id, patch, { by })
     }),
 
+    exact('POST', `${ROUTE_BASE}/complete`, async (request) => {
+      const body = await readJsonBody(request)
+      if (typeof body.id !== 'string' || body.id.trim() === '') {
+        throw new TodoError('invalid-body', 'complete 需要 id')
+      }
+      return { todo: await service.completeTree(body.id, { by: actorOf(body) }) }
+    }),
+
     exact('POST', `${ROUTE_BASE}/status`, async (request) => {
       const body = await readJsonBody(request)
       const by = actorOf(body)
@@ -869,6 +877,14 @@ export function createRoutes(deps) {
       return { todo, added, removed }
     }),
 
+    exact('POST', `${ROUTE_BASE}/reorder`, async (request) => {
+      const body = await readJsonBody(request)
+      if (typeof body.parentId !== 'string' || body.parentId.trim() === '') {
+        throw new TodoError('invalid-body', 'reorder 需要 parentId')
+      }
+      return service.reorderSiblings(body.parentId, Array.isArray(body.order) ? body.order : [], { by: actorOf(body) })
+    }),
+
     exact('POST', `${ROUTE_BASE}/dispatch`, async (request) => {
       const body = await readJsonBody(request)
       // A missing id is a malformed request (400), not a record that does not exist (404).
@@ -879,6 +895,7 @@ export function createRoutes(deps) {
         mode: body.mode,
         sessionId: body.sessionId,
         dir: body.dir,
+        purpose: body.purpose === 'split' ? 'split' : 'work',
         // Load-bearing: without this the dispatcher treats an explicit pick as a
         // guess and may substitute another conversation. It was dropped here once,
         // which made 「选了之后还是交给别人」 survive a fix that was otherwise

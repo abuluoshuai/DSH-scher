@@ -17,7 +17,7 @@ import { CAPTURE_REASONS, findDuplicate } from './capture.js'
 import { DEFAULT_MIN_WEIGHT, scoreItem } from './weight.js'
 import { asTodoError } from './errors.js'
 import { formatLink } from './links.js'
-import { LIMITS, PRIORITIES, PRIORITY_LABELS, STATUSES } from './model.js'
+import { CHILD_STATUSES, LIMITS, PRIORITIES, PRIORITY_LABELS, STATUSES } from './model.js'
 
 const text = (value) => [{ type: 'text', text: value }]
 
@@ -45,6 +45,46 @@ const STEPS_SHAPE = {
     type: 'object',
     properties: { text: { type: 'string' }, done: { type: 'boolean' } },
     required: ['text'],
+    additionalProperties: false,
+  },
+}
+
+const CHILDREN_INPUT = {
+  type: 'array',
+  description:
+    '子事项（可选，最多 ' + LIMITS.children + ' 条）：按工作顺序排列；每项一句话，状态缺省未开始。'
+    + '父待办状态由子事项自动派生。',
+  items: {
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          status: { type: 'string', enum: [...CHILD_STATUSES] },
+        },
+        required: ['title'],
+        additionalProperties: false,
+      },
+    ],
+  },
+}
+
+/** Ordered subtasks as the model sees them. */
+const CHILDREN_SHAPE = {
+  type: 'array',
+  description: '子事项（数组顺序就是交给 Agent 时的工作顺序）',
+  items: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      title: { type: 'string' },
+      status: { type: 'string', enum: [...CHILD_STATUSES] },
+      createdAt: { type: 'integer' },
+      updatedAt: { type: 'integer' },
+      lastDispatch: { oneOf: [{ type: 'object' }, { type: 'null' }] },
+    },
+    required: ['id', 'title', 'status'],
     additionalProperties: false,
   },
 }
@@ -131,6 +171,8 @@ const TODO_SHAPE = {  type: 'object',
     tags: { type: 'array', items: { type: 'string' } },
     evidence: { type: 'string', description: '原话（空串表示是自己记的，不是抓的）' },
     steps: STEPS_SHAPE,
+    parentId: { type: 'string', description: '父待办 id；空串表示它是顶层事项' },
+    order: { type: 'integer', description: '同级子事项中的顺序（越小越靠前）' },
     links: {
       type: 'array',
       items: {
@@ -198,6 +240,8 @@ export function presentTodo(todo, now = Date.now()) {
     tags: [...todo.tags],
     evidence: todo.evidence ?? '',
     steps: (todo.steps ?? []).map((step) => ({ text: step.text, done: step.done === true })),
+    parentId: todo.parentId ?? '',
+    order: todo.order ?? 0,
     links: todo.links.map((link) => ({ ...link })),
     createdAt: todo.createdAt,
     createdAtIso: new Date(todo.createdAt).toISOString(),
@@ -244,6 +288,7 @@ export function todoLine(todo) {
     parts.push(`${todo.links.length} 个附件（${todo.links.map((link) => link.title).join('、')}）`)
   }
   if (todo.sessionId !== '') parts.push(`已交给会话 ${todo.sessionId}`)
+  if (typeof todo.parentId === 'string' && todo.parentId !== '') parts.push(`子事项（父 ${todo.parentId}）`)
   return parts.join('  ')
 }
 
@@ -343,7 +388,17 @@ function originOf(exec) {
  * Loader rows is the heavier option, deferred until adoption asks for it.
  */
 export const TOOL_GROUPS = Object.freeze({
-  core: Object.freeze(['global_todo_add', 'global_todo_list', 'global_todo_get', 'global_todo_update', 'global_todo_note', 'global_todo_done']),
+  core: Object.freeze([
+    'global_todo_add',
+    'global_todo_list',
+    'global_todo_get',
+    'global_todo_update',
+    'global_todo_note',
+    'global_todo_done',
+    // Auto-split hands the plan back as ordered children, so it must exist even
+    // in the minimal profile.
+    'global_todo_split',
+  ]),
   advanced: Object.freeze([
     'global_todo_capture',
     'global_todo_link',
@@ -412,6 +467,7 @@ export function createTools(service, options = {}) {
           description: { type: 'string', description: '补充说明、验收标准、已知的坑' },
           links: LINKS_INPUT,
           steps: STEPS_INPUT,
+          parentId: { type: 'string', description: '父待办 id（可选）：给它添加一个子事项；子事项共享父的工作区与工作目录，不需要选择工作区/目录' },
           evidence: EVIDENCE_INPUT,
           tags: { type: 'array', items: { type: 'string' }, description: `标签，最多 ${LIMITS.tags} 个` },
           priority: { type: 'string', enum: [...PRIORITIES], description: 'P0 紧急 / P1 高 / P2 常规（缺省）/ P3 低' },
@@ -725,6 +781,68 @@ export function createTools(service, options = {}) {
         const outcome = await attempt(() => service.update(id, patch, { by: 'agent' }))
         if (outcome.ok !== true) return outcome
         return { ok: true, changed: outcome.value.changed, todo: presentTodo(outcome.value.todo, now()) }
+      },
+    },
+
+    {
+      name: 'global_todo_split',
+      description:
+        '把一条全局待办按执行顺序拆成多个**子事项**（子事项也是完整待办，带 parentId，共享父事项的工作区与工作目录）。'
+        + '用于「自动拆分子任务」：只输出拆分结果，不要开始执行。父待办状态由子事项自动派生——'
+        + '全部未开始=未开始，全部完成=已完成，其余=进行中；子事项不需要归档，只有父待办可以归档。',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '父待办 id' },
+          items: {
+            type: 'array',
+            description: '按执行顺序排列的子事项（数量受 LIMITS.children 限制）',
+            items: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                  },
+                  required: ['title'],
+                  additionalProperties: false,
+                },
+              ],
+            },
+          },
+        },
+        required: ['id', 'items'],
+        additionalProperties: false,
+      },
+      timeoutMs: 10000,
+      isConcurrencySafe: () => false,
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            todo: TODO_SHAPE,
+            children: { type: 'array', items: TODO_SHAPE },
+            reason: { type: 'string' },
+            error: { type: 'string' },
+          },
+          required: ['ok'],
+        },
+        render: (_args, value) => {
+          if (value.ok !== true) return text(`拆分失败：${value.error ?? value.reason ?? '未知原因'}`)
+          return text(`已拆成 ${value.children.length} 个子事项：\n${value.children.map((child, index) => `${index + 1}. ${child.title}`).join('\n')}`)
+        },
+      },
+      async execute(args) {
+        const outcome = await attempt(() => service.split(args?.id, args?.items, { by: 'agent' }))
+        if (outcome.ok !== true) return outcome
+        return {
+          ok: true,
+          todo: presentTodo(outcome.value.todo, now()),
+          children: outcome.value.children.map((child) => presentTodo(child, now())),
+        }
       },
     },
 

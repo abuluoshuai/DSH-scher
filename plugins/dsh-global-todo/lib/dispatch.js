@@ -507,6 +507,16 @@ export function createDispatcher(options) {
     const mode = typeof request?.mode === 'string' && request.mode !== '' ? request.mode : 'auto'
     try {
       const result = await dispatchOne(id, request)
+      // Whatever branch delivered the hand-off, the tree root owns the binding:
+      // subsequent children must reuse this session and workspace.
+      if (typeof result?.sessionId === 'string' && result.sessionId !== '') {
+        try {
+          const root = await service.rootOf(id)
+          await service.bindSession(root.id, { sessionId: result.sessionId, dir: result.dir }, { by: 'human' })
+        } catch (error) {
+          log('warn', `could not bind the tree root to ${result.sessionId}: ${error?.message ?? error}`)
+        }
+      }
       metrics?.recordDispatch?.({ ok: true, mode: result?.mode ?? mode })
       return result
     } catch (error) {
@@ -523,19 +533,112 @@ export function createDispatcher(options) {
     }
 
     const todo = await service.get(id)
-    const prompt = service.dispatchPrompt(todo)
+    const purpose = request.purpose === 'split' ? 'split' : 'work'
+    const prompt = await service.promptFor(id, { purpose })
+    const sendLabel = todo.title
+    const record = async (info) => service.recordDispatch(id, info)
     const store = agents()
     const bound = todo.sessionId === '' || store === undefined ? undefined : store.get(todo.sessionId)
     const dir = resolveDir({ dir: request.dir, todo, bound, config })
 
     const fail = async (error, targetDir = dir) => {
       const wrapped = asTodoError(error, 'dispatch-failed')
-      await service.recordDispatch(id, { mode, ok: false, error: wrapped.message, dir: targetDir })
+      await record({ mode, ok: false, error: wrapped.message, dir: targetDir })
       throw wrapped
     }
 
     if (store === undefined) {
       return fail(new TodoError('agents-unavailable', '这个宿主没有 agents 服务，无法把待办交给 Agent'))
+    }
+
+    // A subtask never owns a conversation: resolve the top-level parent first.
+    // Bound tree -> always hand off there; unbound tree -> use the current
+    // conversation now and bind the root, so every later child lands in it too.
+    const treeRoot = await service.rootOf(id)
+    if (treeRoot.sessionId !== '') {
+        let live
+        try {
+          live = await ensureAgent(treeRoot.sessionId)
+        } catch (error) {
+          return fail(
+            new TodoError(
+              'dispatch-failed',
+              `所属顶层待办绑定的会话（…${treeRoot.sessionId.slice(-8)}）无法加载：${asTodoError(error).message}`,
+            ),
+          )
+        }
+        if (live.agent === undefined) {
+          return fail(
+            new TodoError(
+              'dispatch-failed',
+              `所属顶层待办绑定的会话（…${treeRoot.sessionId.slice(-8)}）现在不在运行，宿主也无法把它加载起来。`,
+            ),
+          )
+        }
+        const boundDir = currentDirOf(live.agent) || treeRoot.originDir || ''
+        sendTo(live.agent, prompt, sendLabel)
+        await record({ mode: 'bound', ok: true, sessionId: treeRoot.sessionId, dir: boundDir })
+        await service.bindSession(treeRoot.id, { sessionId: treeRoot.sessionId, dir: boundDir }, { by: 'human' })
+        notify(onDispatched, treeRoot.sessionId, log)
+        return {
+          todo: await service.get(id),
+          mode: 'bound',
+          sessionId: treeRoot.sessionId,
+          reused: true,
+          resumed: live.resumed === true,
+          dir: boundDir,
+          target: treeRoot.sessionId,
+        }
+    }
+    if (todo.parentId !== '') {
+      const wanted = resolveCurrentSession({
+        store,
+        requested: typeof request.sessionId === 'string' ? request.sessionId : '',
+        recent: getRecentSession?.(),
+        todo: treeRoot,
+        authoritative: request.authoritative === true,
+      })
+      if (wanted === '') {
+        return fail(
+          new TodoError(
+            'dispatch-failed',
+            '所属顶层待办还没有绑定会话：先打开任意对话（或在当前对话里）再派发，系统会把顶层待办绑定到那个会话。',
+          ),
+        )
+      }
+      let live
+      try {
+        live = await ensureAgent(wanted)
+      } catch (error) {
+        return fail(
+          new TodoError(
+            'dispatch-failed',
+            `当前对话（…${wanted.slice(-8)}）无法加载，无法绑定顶层待办：${asTodoError(error).message}`,
+          ),
+        )
+      }
+      if (live.agent === undefined) {
+        return fail(
+          new TodoError(
+            'dispatch-failed',
+            `当前对话（…${wanted.slice(-8)}）不在运行，宿主也无法把它加载起来；先给它发一句话再派发。`,
+          ),
+        )
+      }
+      const currentDir = currentDirOf(live.agent) || treeRoot.originDir || ''
+      sendTo(live.agent, prompt, sendLabel)
+      await record({ mode: 'current', ok: true, sessionId: wanted, dir: currentDir })
+      await service.bindSession(treeRoot.id, { sessionId: wanted, dir: currentDir }, { by: 'human' })
+      notify(onDispatched, wanted, log)
+      return {
+        todo: await service.get(id),
+        mode: 'current',
+        sessionId: wanted,
+        reused: true,
+        resumed: live.resumed === true,
+        dir: currentDir,
+        target: wanted,
+      }
     }
 
     try {
@@ -571,8 +674,8 @@ export function createDispatcher(options) {
           )
         }
         const target = live.agent
-        sendTo(target, prompt, todo.title)
-        await service.recordDispatch(id, { mode, ok: true, sessionId: wanted, dir: currentDirOf(target) })
+        sendTo(target, prompt, sendLabel)
+        await record({ mode, ok: true, sessionId: wanted, dir: currentDirOf(target) })
         notify(onDispatched, wanted, log)
         if (live.resumed) log('info', `resumed ${wanted} to deliver a hand-off`)
         return {
@@ -608,8 +711,8 @@ export function createDispatcher(options) {
           live = { agent: undefined, resumed: false }
         }
         if (live.agent !== undefined) {
-          sendTo(live.agent, prompt, todo.title)
-          await service.recordDispatch(id, {
+          sendTo(live.agent, prompt, sendLabel)
+          await record({
             mode: 'current',
             ok: true,
             sessionId: currentId,
@@ -651,8 +754,8 @@ export function createDispatcher(options) {
             )
           }
         } else {
-          sendTo(target, prompt, todo.title)
-          await service.recordDispatch(id, { mode: 'bound', ok: true, sessionId: wanted, dir })
+          sendTo(target, prompt, sendLabel)
+          await record({ mode: 'bound', ok: true, sessionId: wanted, dir })
           notify(onDispatched, wanted, log)
           return { todo: await service.get(id), mode: 'bound', sessionId: wanted, reused: true, target: wanted }
         }
@@ -667,8 +770,8 @@ export function createDispatcher(options) {
       if (spawned?.agent === undefined) {
         throw new TodoError('dispatch-failed', '新会话已创建但拿不到 agent 句柄，无法投递内容')
       }
-      sendTo(spawned.agent, prompt, todo.title)
-      await service.recordDispatch(id, { mode: 'new', ok: true, sessionId: spawned.sessionId, dir })
+      sendTo(spawned.agent, prompt, sendLabel)
+      await record({ mode: 'new', ok: true, sessionId: spawned.sessionId, dir })
       notify(onDispatched, spawned.sessionId, log)
       return {
         todo: await service.get(id),
